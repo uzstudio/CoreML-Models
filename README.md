@@ -1,13 +1,5 @@
 # CoreML-Models
 
-**The de-facto iOS Core ML model zoo. 134 ports — YOLO, SAM, LaMa, Stable Diffusion, on-device LLM, depth, OCR, pose, style transfer.**
-
-Maintained by [Daisuke Majima](https://john-rocky.github.io) — Senior iOS / On-Device ML Engineer, Osaka, Japan.
-
-📱 Try the **iOS sample-app collection** on the App Store: [Models Zoo](https://apps.apple.com/jp/app/models-zoo/id6762083207)
-
-💼 **Open to Staff / Senior iOS / Mobile ML roles** — [john-rocky.github.io](https://john-rocky.github.io) · rockyshikoku@gmail.com
-
 <img width="1280" src="https://user-images.githubusercontent.com/23278992/147420041-fdeb1fbb-7e93-41c6-84d6-80d7c1c45200.jpeg">
 
 # How to use
