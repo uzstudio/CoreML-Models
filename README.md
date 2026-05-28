@@ -64,6 +64,7 @@ You are free to do or not.
   - [easyportrait](#easyportrait)
   - [MobileSAM](#mobilesam)
   - [SAM2-Tiny](#sam2-tiny)
+  - [FastSAM](#fastsam)
 
 - [**Video Matting**](#video-matting)
   - [MatAnyone](#matanyone)
@@ -508,6 +509,20 @@ SAM 2: Segment Anything in Images and Videos. SAM 2 extends promptable segmentat
 | Download Link | Size | Output | Original Project | License | Year | Sample Project |
 | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- |
 | [SAM2Tiny.zip](https://github.com/john-rocky/SamKit/releases/download/v1.0.0/SAM2Tiny.zip) | 76 MB (ImageEncoder 64 MB + PromptEncoder 2 MB + MaskDecoder 9.8 MB) | Segmentation Mask | [facebookresearch/sam2](https://github.com/facebookresearch/sam2) | [Apache 2.0](https://github.com/facebookresearch/sam2/blob/main/LICENSE) | 2024 | [SamKit](https://github.com/john-rocky/SamKit) |
+
+### FastSAM
+
+Fast Segment Anything. Unlike MobileSAM / SAM2 (image-encoder + prompt-decoder), FastSAM is a **YOLOv8-seg** instance segmenter trained on a 2% subset of SA-1B: a single forward pass segments every object, and point / box prompts simply *select* among those instances afterwards. That makes it the fastest of the three for "segment everything" and for **real-time** use — the detector runs once per frame, then taps are essentially free. The [FastSAMDemo](sample_apps/FastSAMDemo) does **real-time camera** segmentation (~30 fps on-device), **tap-to-pick** on photos, and **offline video** segmentation (burns masks into a new clip), with a lightweight IoU **tracker** that keeps each object's colour stable across frames and a 320 / 512 / 640 resolution picker. Two backbones: FastSAM-s (YOLOv8s-seg, lightweight) and FastSAM-x (YOLOv8x-seg, higher quality).
+
+| Download Link | Size | Output | Original Project | License | Year | Sample Project | Conversion Script |
+| ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- |
+| FastSAM-s / FastSAM-x (image input, 4 outputs) | ~23 MB (s) / ~138 MB (x) FP16 | Instance masks (boxes + coeffs + protos) | [CASIA-IVA-Lab/FastSAM](https://github.com/CASIA-IVA-Lab/FastSAM) | [AGPL-3.0](https://github.com/CASIA-IVA-Lab/FastSAM/blob/main/LICENSE) | 2023 | [FastSAMDemo](sample_apps/FastSAMDemo) · [SamKit](https://github.com/john-rocky/SamKit) | [convert_fastsam.py](conversion_scripts/convert_fastsam.py) |
+
+Model I/O: **`ImageType` (CVPixelBuffer) input** at a selectable 320 / 512 / 640 (with `scale=1/255` baked in, so CoreML normalises on the ANE) → `boxes [1,4,A]` + `scores [1,1,A]` + `mask_coeffs [1,32,A]` + `mask_protos [1,32,P,P]` (P = input/4). Each instance mask is `sigmoid(coeffs · protos)`, cropped to its box. The Swift side — the `FastSamSession` engine in [SamKit](https://github.com/john-rocky/SamKit) — does NMS, a batched `sgemm` mask assembly at proto resolution, point/box selection, and IoU tracking. See [`sample_apps/FastSAMDemo/README.md`](sample_apps/FastSAMDemo).
+
+Conversion / on-device gotchas worth knowing (see [docs/coreml_conversion_notes.md](docs/coreml_conversion_notes.md)): FastSAM is YOLOv8-seg, not a SAM (convert like the YOLO-seg models); **FP16 models emit Float16 outputs — never read them element-by-element** (bulk-convert with `vImageConvert_Planar16FtoPlanarF`, or it costs ~170 ms/frame); and video frames must be **oriented upright + colour-managed to sRGB** before the model (the camera feeds upright already).
+
+> Note: FastSAM's weights are AGPL-3.0 (Ultralytics YOLOv8), unlike the Apache-2.0 SAM family — check licensing before shipping in a closed-source app.
 
 # Video Matting
 

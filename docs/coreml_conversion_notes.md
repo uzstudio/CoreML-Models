@@ -555,3 +555,26 @@ Additional DC-AE decoder monkey-patches required for trace: drop `output_size=` 
 transformers 5.x rewrote `create_causal_mask` to index into `q_length.shape` / `q_length[0]` — shape assumptions that fail under `torch.jit.trace` (`IndexError: tuple index out of range`). Downgrade to transformers 4.49.0 (the version AMD Nitro-E pins) to convert Llama 3.2 1B cleanly. Keep the wrapper limited to `model.model` (drop the LM head) and return `last_hidden_state` for seq_len=128.
 
 ---
+
+## FastSAM is YOLOv8-seg, not SAM (no encoder/prompt-decoder)
+
+"FastSAM" is a misnomer for conversion purposes: it is **not** a SAM variant (no image-encoder + prompt-encoder + mask-decoder split like MobileSAM / SAM2). It is a plain Ultralytics YOLOv8-seg instance segmenter (`from ultralytics import FastSAM`). Convert it exactly like the other YOLO-seg detectors in this repo (YOLOE/YOLO-World), not like SamKit's SAM models.
+
+- Wrap `FastSAM("FastSAM-s.pt").model` (the underlying `SegmentationModel` nn.Module). In inference (non-export) mode the Segment head returns `out[0] = cat([decoded_boxes_cls, mask_coeffs], 1)` and `out[1] = (raw_feats, mask_coeffs, protos)`, so **protos = `out[1][-1]`**. Boxes come out already decoded to xywh in input-pixel (640) coordinates and the class score is already sigmoid-activated — same as the YOLO-World port.
+- Split into four clean outputs `boxes [1,4,8400]`, `scores [1,nc,8400]` (nc=1), `mask_coeffs [1,32,8400]`, `mask_protos [1,32,160,160]` so Swift can assemble masks generically (`sigmoid(coeffs · protos)`, upsample, crop to box, strip letterbox padding). `nc = pred.shape[1] - 4 - 32`.
+- Reuse the YOLOEDemo coremltools `int`-op monkey-patch (`_TORCH_OPS_REGISTRY.register_func(..., torch_alias=["int"])`); YOLOv8's Detect head trips multi-dim shape→int casts on coremltools 7+/9 otherwise.
+- **Read the protos MLMultiArray with strides, not a flat copy** — on the Neural Engine the `[1,32,160,160]` output is row-padded for SIMD alignment (same trap as Basic Pitch above). The Swift `FastSamSession.readFloats` fast-paths a contiguous buffer and otherwise gathers via `array.strides`.
+- **Licensing:** FastSAM weights are AGPL-3.0 (Ultralytics YOLOv8), unlike the Apache-2.0 MobileSAM / SAM2. Note this in any closed-source shipping decision.
+
+## FP16 CoreML models emit Float16 MLMultiArray outputs — never read them element-by-element
+
+A `compute_precision=FLOAT16` model returns its `MLMultiArray` outputs as **`.float16`**, not `.float32`. Reading those with `array[i].floatValue` (NSNumber boxing) costs one ObjC allocation per element — for FastSAM's ~700K output floats (`mask_protos` 32×128×128 + `mask_coeffs` 32×5376 …) that measured **~170 ms per frame on device** (the entire real-time budget; `predict` was only ~7 ms on ANE). The model was never the bottleneck — pulling its outputs to Swift was.
+
+Fix: bulk-convert by dtype against the raw `dataPointer`, never per-element:
+- `.float32` → `memcpy`
+- `.float16` → `vImageConvert_Planar16FtoPlanarF` (one call over the contiguous block)
+- combine with the stride/block walk so ANE row-padding is still handled (per-block convert).
+
+This took FastSAM-s @512 from ~170 ms to ~2 ms of output-read per frame (5 fps → 30 fps). Alternatively force FP32 outputs at convert time (`ct.TensorType(name=…, dtype=np.float32)`), but the Swift-side fix is model-agnostic. See `FastSamSession.readFloats`.
+
+---
