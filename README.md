@@ -342,14 +342,16 @@ YOLO-World: Real-Time Open-Vocabulary Object Detection. Type any text query and 
 
 ### YOLOE
 
-YOLOE: Real-Time Open-Vocabulary **Detection + Instance Segmentation**. Type any text query and detect *and* segment it — no fixed class list. Unlike YOLO-World, the detector outputs per-anchor **region embeddings** and the region–text similarity runs in Swift against cached MobileCLIP text embeddings, so switching the query never re-runs the image branch. See [YOLOEDemo](sample_apps/YOLOEDemo) for the exact 513-dim BNContrastiveHead decomposition.
+YOLOE: Real-Time Open-Vocabulary **Detection + Instance Segmentation**. Type any text query and detect *and* segment it — no fixed class list. Unlike YOLO-World, the detector outputs per-anchor **region embeddings** and the region–text similarity runs in Swift against cached MobileCLIP text embeddings, so switching the query never re-runs the image branch. Available in **S** (fast) and **L** (accurate) — each size ships its own detector + RepRTA; the MobileCLIP encoder and vocab are shared. See [YOLOEDemo](sample_apps/YOLOEDemo) for the exact 513-dim BNContrastiveHead decomposition.
 
 | Download Link | Size | Description | Original Project | License | Year | Sample Project |
 | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- |
-| [yoloe_detector.mlpackage.zip](https://github.com/john-rocky/CoreML-Models/releases/download/yolo-models-v1/yoloe_detector.mlpackage.zip) | 20 MB | YOLOE-11s-seg region-embedding detector + segmentation | [THU-MIG/yoloe](https://github.com/THU-MIG/yoloe) | [AGPL-3.0](https://github.com/THU-MIG/yoloe/blob/main/LICENSE) | 2025 | [YOLOEDemo](sample_apps/YOLOEDemo) |
-| [reprta.mlpackage.zip](https://github.com/john-rocky/CoreML-Models/releases/download/yolo-models-v1/reprta.mlpackage.zip) | 6 MB | YOLOE RepRTA text-refinement MLP | [THU-MIG/yoloe](https://github.com/THU-MIG/yoloe) | [AGPL-3.0](https://github.com/THU-MIG/yoloe/blob/main/LICENSE) | 2025 | — |
-| [mobileclip_blt_text.mlpackage.zip](https://github.com/john-rocky/CoreML-Models/releases/download/yolo-models-v1/mobileclip_blt_text.mlpackage.zip) | 121 MB | Apple MobileCLIP B-LT text encoder | [apple/ml-mobileclip](https://github.com/apple/ml-mobileclip) | [Apple](https://github.com/apple/ml-mobileclip/blob/main/LICENSE) | 2024 | — |
-| [clip_vocab.json.zip](https://github.com/john-rocky/CoreML-Models/releases/download/yolo-models-v1/clip_vocab.json.zip) | 1.6 MB | BPE vocabulary for tokenizer | — | — | — | — |
+| [yoloe_detector_s.mlpackage.zip](https://github.com/john-rocky/CoreML-Models/releases/download/yolo-models-v1/yoloe_detector_s.mlpackage.zip) | 20 MB | YOLOE-11**s**-seg region-embedding detector + segmentation | [THU-MIG/yoloe](https://github.com/THU-MIG/yoloe) | [AGPL-3.0](https://github.com/THU-MIG/yoloe/blob/main/LICENSE) | 2025 | [YOLOEDemo](sample_apps/YOLOEDemo) |
+| [yoloe_detector_l.mlpackage.zip](https://github.com/john-rocky/CoreML-Models/releases/download/yolo-models-v1/yoloe_detector_l.mlpackage.zip) | 54 MB | YOLOE-11**l**-seg region-embedding detector + segmentation | [THU-MIG/yoloe](https://github.com/THU-MIG/yoloe) | [AGPL-3.0](https://github.com/THU-MIG/yoloe/blob/main/LICENSE) | 2025 | [YOLOEDemo](sample_apps/YOLOEDemo) |
+| [reprta_s.mlpackage.zip](https://github.com/john-rocky/CoreML-Models/releases/download/yolo-models-v1/reprta_s.mlpackage.zip) | 6 MB | YOLOE RepRTA text-refinement MLP (S) | [THU-MIG/yoloe](https://github.com/THU-MIG/yoloe) | [AGPL-3.0](https://github.com/THU-MIG/yoloe/blob/main/LICENSE) | 2025 | — |
+| [reprta_l.mlpackage.zip](https://github.com/john-rocky/CoreML-Models/releases/download/yolo-models-v1/reprta_l.mlpackage.zip) | 6 MB | YOLOE RepRTA text-refinement MLP (L) | [THU-MIG/yoloe](https://github.com/THU-MIG/yoloe) | [AGPL-3.0](https://github.com/THU-MIG/yoloe/blob/main/LICENSE) | 2025 | — |
+| [mobileclip_blt_text.mlpackage.zip](https://github.com/john-rocky/CoreML-Models/releases/download/yolo-models-v1/mobileclip_blt_text.mlpackage.zip) | 121 MB | Apple MobileCLIP B-LT text encoder (shared) | [apple/ml-mobileclip](https://github.com/apple/ml-mobileclip) | [Apple](https://github.com/apple/ml-mobileclip/blob/main/LICENSE) | 2024 | — |
+| [clip_vocab.json.zip](https://github.com/john-rocky/CoreML-Models/releases/download/yolo-models-v1/clip_vocab.json.zip) | 1.6 MB | BPE vocabulary for tokenizer (shared) | — | — | — | — |
 
 # Multi-Object Tracking
 
@@ -520,7 +522,8 @@ Fast Segment Anything — a **YOLOv8-seg** instance segmenter (not a SAM encoder
 
 | Download Link | Size | Output | Original Project | License | Year | Sample Project | Conversion Script |
 | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- |
-| FastSAM-s / FastSAM-x | ~23 MB (s) / ~138 MB (x) FP16 | Instance masks | [CASIA-IVA-Lab/FastSAM](https://github.com/CASIA-IVA-Lab/FastSAM) | [AGPL-3.0](https://github.com/CASIA-IVA-Lab/FastSAM/blob/main/LICENSE) | 2023 | [FastSAMDemo](sample_apps/FastSAMDemo) · [SamKit](https://github.com/john-rocky/SamKit) | [convert_fastsam.py](conversion_scripts/convert_fastsam.py) |
+| [FastSAM_s.mlpackage.zip](https://github.com/john-rocky/CoreML-Models/releases/download/fastsam-v1/FastSAM_s.mlpackage.zip) | ~23 MB FP16 | Instance masks | [CASIA-IVA-Lab/FastSAM](https://github.com/CASIA-IVA-Lab/FastSAM) | [AGPL-3.0](https://github.com/CASIA-IVA-Lab/FastSAM/blob/main/LICENSE) | 2023 | [FastSAMDemo](sample_apps/FastSAMDemo) · [SamKit](https://github.com/john-rocky/SamKit) | [convert_fastsam.py](conversion_scripts/convert_fastsam.py) |
+| [FastSAM_x.mlpackage.zip](https://github.com/john-rocky/CoreML-Models/releases/download/fastsam-v1/FastSAM_x.mlpackage.zip) | ~138 MB FP16 | Instance masks | [CASIA-IVA-Lab/FastSAM](https://github.com/CASIA-IVA-Lab/FastSAM) | [AGPL-3.0](https://github.com/CASIA-IVA-Lab/FastSAM/blob/main/LICENSE) | 2023 | [FastSAMDemo](sample_apps/FastSAMDemo) · [SamKit](https://github.com/john-rocky/SamKit) | [convert_fastsam.py](conversion_scripts/convert_fastsam.py) |
 
 Note: AGPL-3.0 (Ultralytics YOLOv8), unlike the Apache-2.0 SAM family.
 

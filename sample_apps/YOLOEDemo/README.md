@@ -51,6 +51,11 @@ and through the FP16 CoreML model the top detection's anchor/class match exactly
 `mobileclip_blt_text.mlpackage` is Apple's official Core ML export from
 [apple/ml-mobileclip](https://github.com/apple/ml-mobileclip) and is used as-is.
 
+The app bundles the **S** detector. A higher-accuracy **L** variant
+(`yoloe_detector_l` ~54 MB + `reprta_l`) is in the release — to use it, download
+both, rename to `yoloe_detector.mlpackage` / `reprta.mlpackage`, and replace the
+bundled files (Swift needs no changes: embed=512 is shared across S/M/L).
+
 ## Features
 
 - **Camera**: real-time open-vocabulary detection
