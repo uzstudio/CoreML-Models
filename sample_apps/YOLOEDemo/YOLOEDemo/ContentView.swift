@@ -790,7 +790,9 @@ class CameraVC: UIViewController, AVCaptureVideoDataOutputSampleBufferDelegate {
             let screenRect = VNImageRectForNormalizedRect(displayRect, Int(width), Int(height))
             let color = detector.colors[cid % detector.colors.count]
             let text = String(format: "%@ %.0f%%", label, conf * 100)
-            let alpha = CGFloat(max(conf - 0.2, 0.1) / 0.8 * 0.9)
+            // Keep boxes solid and legible (only above-threshold detections reach here);
+            // a faint confidence cue remains in the 0.9-1.0 range.
+            let alpha = CGFloat(max(0.9, min(1.0, conf)))
             boxViews[i].show(frame: screenRect, label: text, color: color, alpha: alpha)
         }
     }
@@ -814,7 +816,7 @@ class BoundingBoxView {
     init() {
         fillLayer.isHidden = true
         shapeLayer.fillColor = nil
-        shapeLayer.lineWidth = 2
+        shapeLayer.lineWidth = 3
         shapeLayer.lineCap = .round
         shapeLayer.lineJoin = .round
         shapeLayer.isHidden = true
@@ -845,7 +847,7 @@ class BoundingBoxView {
         fillLayer.fillColor = color.withAlphaComponent(0.08).cgColor
         fillLayer.isHidden = false
         textLayer.string = "  \(label)  "
-        textLayer.backgroundColor = color.withAlphaComponent(min(alpha + 0.1, 0.9)).cgColor
+        textLayer.backgroundColor = color.withAlphaComponent(0.95).cgColor
         let tw = CGFloat(label.count) * 7 + 20
         let ty = frame.minY > 28 ? frame.minY - 24 : frame.maxY + 4
         textLayer.frame = CGRect(x: frame.minX, y: ty,
