@@ -578,3 +578,57 @@ Fix: bulk-convert by dtype against the raw `dataPointer`, never per-element:
 This took FastSAM-s @512 from ~170 ms to ~2 ms of output-read per frame (5 fps → 30 fps). Alternatively force FP32 outputs at convert time (`ct.TensorType(name=…, dtype=np.float32)`), but the Swift-side fix is model-agnostic. See `FastSamSession.readFloats`.
 
 ---
+
+## Open-Vocabulary Contrastive Detectors: Export Region Embeddings, Do Similarity in Swift
+
+YOLOE / YOLO-World style detectors align per-anchor **region embeddings** against
+text embeddings in a contrastive class head. There are two ways to ship them:
+
+1. **Bake the text in** (YOLOWorldDemo): the CoreML model takes `tpe` (text prompt
+   embeddings) as an input and outputs finished `scores [1, NC, 8400]`. Simple, but
+   the image branch re-runs whenever the vocabulary changes, and `NC` is fixed.
+2. **Expose region embeddings** (YOLOEDemo): the model is **text-free** and outputs
+   the per-anchor embedding *before* the class logits; the similarity is a matmul in
+   Swift against cached text embeddings. The image branch is fully decoupled from the
+   text — switching the query is free, and the detector is vocabulary-agnostic.
+
+For (2), the load-bearing detail is the head's exact scoring math. YOLOE uses a
+**per-scale `BNContrastiveHead`** (one per feature level, `nl=3`):
+
+```
+logit = (BN_s(region) · normalize(text)) · exp(logit_scale_s) + bias_s
+score = sigmoid(logit)
+```
+
+`BN`, `logit_scale`, and `bias` **differ per scale**, so you cannot expose a single
+"embedding" plus two global scalars. The clean fix is an **augmented embedding** that
+folds the per-scale calibration into the tensor itself:
+
+- `region_embeddings[:, :512, a] = BN_s(cv3_s(feat))[a] · exp(logit_scale_s)`  (scale folded in)
+- `region_embeddings[:,  512, a] = bias_s`                                       (bias as channel 512)
+- cached text becomes `text' = [normalize(reprta(clip)), 1.0]`                   (513-dim)
+
+Then `logit[k, a] = <region'[:, a], text'[k]>` exactly, with **one matmul and zero
+anchor-layout knowledge in Swift**. Build the bias channel without `expand(-1, …)`
+(coremltools 8.x MPS tile bug): `bias_ch = e[:, :1, :] * 0.0 + cv4[i].bias`.
+
+Export the detector **text-free** by calling the head's own pieces directly rather
+than its prompt forward: boxes via `head._get_decode_boxes({"boxes": cat(cv2), "feats": feats})`
+(reuses the DFL/anchor/stride decode → xywh @640), embeddings via `cv3` + `cv4[i].norm`,
+masks via `cv5` + `head.proto(feats[0])`. Verified bit-exact vs the official head in
+FP32 (boxes/coeffs/proto diff `0.0`; `max |sigmoid(text'·region') − scores| ≈ 2e-11`).
+
+**FP16 notes.** Scores survive FP16 perfectly (top detection's anchor *and* class
+match exactly). Decoded **boxes** can differ by tens of px on *background* anchors
+(flat DFL distributions round differently in FP16) but ~1 px mean — harmless, since
+only post-threshold/NMS anchors are used. The `region_embeddings` output is
+`[1, 513, 8400]` ≈ 4.3 M FP16 values: **never read it element-by-element** (the
+FastSAM trap). Bulk-convert with `vImageConvert_Planar16FtoPlanarF` respecting ANE
+row padding (`rowBytes = stride·2`), then `cblas_sgemm(textPrime[N×513], region[513×8400])`.
+See `YOLOEDemo/ContentView.swift` (`readMatrix2D`, `runDetection`).
+
+The text path (MobileCLIP → `reprta` residual MLP → L2-normalize) matches YOLOE's
+`get_tpe = normalize(reprta(tpe))`; ship `reprta` as a separate tiny mlpackage and do
+the normalize in Swift. MobileCLIP itself is Apple's official Core ML export.
+
+---

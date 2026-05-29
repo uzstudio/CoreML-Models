@@ -1,6 +1,7 @@
 *.mlpackage
 *.mlpackage.zip
 *.pt
+*.ts
 *.venv/
 .venv/
 __pycache__/

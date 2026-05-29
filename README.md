@@ -35,6 +35,7 @@ You are free to do or not.
   - [YOLO11](#yolo11)
   - [YOLO26](#yolo26)
   - [YOLO-World](#yolo-world)
+  - [YOLOE](#yoloe)
 
 - [**Multi-Object Tracking**](#multi-object-tracking)
   - [ByteTrack](#bytetrack)
@@ -337,6 +338,17 @@ YOLO-World: Real-Time Open-Vocabulary Object Detection. Type any text query and 
 | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- |
 | [yoloworld_detector.mlpackage.zip](https://github.com/john-rocky/CoreML-Models/releases/download/yolo-models-v1/yoloworld_detector.mlpackage.zip) | 25 MB | YOLO-World V2-S visual detector | [AILab-CVC/YOLO-World](https://github.com/AILab-CVC/YOLO-World) | [GPL-3.0](https://github.com/AILab-CVC/YOLO-World/blob/master/LICENSE) | 2024 | [YOLOWorldDemo](sample_apps/YOLOWorldDemo) |
 | [clip_text_encoder.mlpackage.zip](https://github.com/john-rocky/CoreML-Models/releases/download/yolo-models-v1/clip_text_encoder.mlpackage.zip) | 121 MB | CLIP ViT-B/32 text encoder | [openai/CLIP](https://github.com/openai/CLIP) | [MIT](https://github.com/openai/CLIP/blob/main/LICENSE) | 2021 | — |
+| [clip_vocab.json.zip](https://github.com/john-rocky/CoreML-Models/releases/download/yolo-models-v1/clip_vocab.json.zip) | 1.6 MB | BPE vocabulary for tokenizer | — | — | — | — |
+
+### YOLOE
+
+YOLOE: Real-Time Open-Vocabulary **Detection + Instance Segmentation**. Type any text query and detect *and* segment it — no fixed class list. Unlike YOLO-World, the detector outputs per-anchor **region embeddings** and the region–text similarity runs in Swift against cached MobileCLIP text embeddings, so switching the query never re-runs the image branch. See [YOLOEDemo](sample_apps/YOLOEDemo) for the exact 513-dim BNContrastiveHead decomposition.
+
+| Download Link | Size | Description | Original Project | License | Year | Sample Project |
+| ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- |
+| [yoloe_detector.mlpackage.zip](https://github.com/john-rocky/CoreML-Models/releases/download/yolo-models-v1/yoloe_detector.mlpackage.zip) | 20 MB | YOLOE-11s-seg region-embedding detector + segmentation | [THU-MIG/yoloe](https://github.com/THU-MIG/yoloe) | [AGPL-3.0](https://github.com/THU-MIG/yoloe/blob/main/LICENSE) | 2025 | [YOLOEDemo](sample_apps/YOLOEDemo) |
+| [reprta.mlpackage.zip](https://github.com/john-rocky/CoreML-Models/releases/download/yolo-models-v1/reprta.mlpackage.zip) | 6 MB | YOLOE RepRTA text-refinement MLP | [THU-MIG/yoloe](https://github.com/THU-MIG/yoloe) | [AGPL-3.0](https://github.com/THU-MIG/yoloe/blob/main/LICENSE) | 2025 | — |
+| [mobileclip_blt_text.mlpackage.zip](https://github.com/john-rocky/CoreML-Models/releases/download/yolo-models-v1/mobileclip_blt_text.mlpackage.zip) | 121 MB | Apple MobileCLIP B-LT text encoder | [apple/ml-mobileclip](https://github.com/apple/ml-mobileclip) | [Apple](https://github.com/apple/ml-mobileclip/blob/main/LICENSE) | 2024 | — |
 | [clip_vocab.json.zip](https://github.com/john-rocky/CoreML-Models/releases/download/yolo-models-v1/clip_vocab.json.zip) | 1.6 MB | BPE vocabulary for tokenizer | — | — | — | — |
 
 # Multi-Object Tracking
