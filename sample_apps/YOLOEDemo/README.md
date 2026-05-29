@@ -58,10 +58,15 @@ bundled files (Swift needs no changes: embed=512 is shared across S/M/L).
 
 ## Features
 
-- **Camera**: real-time open-vocabulary detection
+- **Camera**: real-time open-vocabulary detection + live instance masks
 - **Photo**: pick from library, detect + colored instance masks, re-threshold without re-running
-- **Video**: pick a video, detect frame-by-frame with overlay
+- **Video**: pick a video, detect + masks frame-by-frame with overlay
 - **Open-vocabulary**: up to 80 simultaneous queries, any text; switching queries is free
+
+Live masks (camera/video) use the [yolo-ios-app](https://github.com/ultralytics/yolo-ios-app)
+fast path: one BLAS matmul `coeffs[N,32] x protos[32,160²]` builds every instance mask at
+proto resolution, composited into a single small RGBA image that Core Animation scales onto
+a `maskLayer` — no per-pixel CGContext draw, no SwiftUI churn per frame.
 
 ## Requirements
 

@@ -405,6 +405,7 @@ struct VideoDetectionView: View {
     @Binding var threshold: Float
     @State private var selectedItem: PhotosPickerItem?
     @State private var currentFrame: UIImage?
+    @State private var currentMask: CGImage?
     @State private var detections: [Detection] = []
     @State private var progress: Double = 0
     @State private var fps: Double = 0
@@ -421,6 +422,17 @@ struct VideoDetectionView: View {
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                    // Segmentation overlay: same aspect-fit as the frame -> aligns with boxes.
+                    if let currentMask {
+                        Image(decorative: currentMask, scale: 1)
+                            .resizable()
+                            .interpolation(.none)
+                            .aspectRatio(contentMode: .fit)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .opacity(0.5)
+                            .allowsHitTesting(false)
+                    }
 
                     DetectionOverlay(detections: detections,
                                      imageSize: currentFrame.size,
@@ -527,13 +539,14 @@ struct VideoDetectionView: View {
             let frame = UIImage(cgImage: cgImage)
 
             let start = CFAbsoluteTimeGetCurrent()
-            let dets = detector.detectSync(image: frame)
+            let result = detector.detectSync(image: frame)
             let elapsed = CFAbsoluteTimeGetCurrent() - start
             let currentFPS = 1.0 / max(elapsed, 0.001)
 
             await MainActor.run {
                 currentFrame = frame
-                detections = dets
+                detections = result.detections
+                currentMask = result.maskImage
                 progress = currentSec / totalSeconds
                 fps = fps == 0 ? currentFPS : fps * 0.9 + currentFPS * 0.1
             }
@@ -586,6 +599,7 @@ class CameraVC: UIViewController, AVCaptureVideoDataOutputSampleBufferDelegate {
     private let sessionQueue = DispatchQueue(label: "session")
     private let inferenceQueue = DispatchQueue(label: "inference")
     private var previewLayer: AVCaptureVideoPreviewLayer!
+    private let maskLayer = CALayer()
     private var boxViews: [BoundingBoxView] = []
     private var isProcessing = false
     private var longSide: CGFloat = 1920
@@ -613,6 +627,13 @@ class CameraVC: UIViewController, AVCaptureVideoDataOutputSampleBufferDelegate {
         previewLayer = AVCaptureVideoPreviewLayer(session: session)
         previewLayer.videoGravity = .resizeAspectFill
         view.layer.addSublayer(previewLayer)
+
+        // Segmentation overlay: a small proto-res mask CGImage scaled up by Core Animation
+        // (yolo-ios-app maskLayer.contents pattern). Same gravity as the preview so it aligns.
+        maskLayer.contentsGravity = .resizeAspectFill
+        maskLayer.opacity = 0.5
+        maskLayer.magnificationFilter = .nearest   // crisp instance edges from the 160² mask
+        previewLayer.addSublayer(maskLayer)
 
         for _ in 0..<100 {
             let bv = BoundingBoxView()
@@ -668,6 +689,9 @@ class CameraVC: UIViewController, AVCaptureVideoDataOutputSampleBufferDelegate {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         previewLayer.frame = view.bounds
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        maskLayer.frame = previewLayer.bounds
+        CATransaction.commit()
         statsLabel.frame = CGRect(
             x: (view.bounds.width - 220) / 2,
             y: view.safeAreaInsets.top + 8,
@@ -713,7 +737,9 @@ class CameraVC: UIViewController, AVCaptureVideoDataOutputSampleBufferDelegate {
         }
         isProcessing = true
         let start = CACurrentMediaTime()
-        let dets = detector.detectSync(pixelBuffer: pb)
+        let result = detector.detectSync(pixelBuffer: pb)
+        let dets = result.detections
+        let maskCG = result.maskImage
         let ms = (CACurrentMediaTime() - start) * 1000
         isProcessing = false
 
@@ -732,6 +758,7 @@ class CameraVC: UIViewController, AVCaptureVideoDataOutputSampleBufferDelegate {
             self.showBoxes(visionDets)
             CATransaction.begin()
             CATransaction.setDisableActions(true)
+            self.maskLayer.contents = maskCG       // proto-res overlay, scaled by Core Animation
             self.statsLabel.string = statsText
             CATransaction.commit()
         }
@@ -840,8 +867,8 @@ class BoundingBoxView {
 // MARK: - Mask Data Container
 
 struct MaskData {
-    let coeffs: [Float]   // [1, 32, 8400] flattened
-    let protos: [Float]   // [1, 32, 160, 160] flattened
+    let coeffs: [Float]   // packed [32, numAnchors]
+    let protos: [Float]   // packed [32, 160*160]
     let numAnchors: Int
 }
 
@@ -850,6 +877,9 @@ struct MaskData {
 struct DetectionResult {
     let detections: [Detection]
     let maskData: MaskData?
+    /// Combined instance-mask overlay at proto resolution, de-letterboxed to the
+    /// original-image aspect (built for the live camera/video paths). nil otherwise.
+    var maskImage: CGImage? = nil
 }
 
 // MARK: - Text Grounding Detector
@@ -978,16 +1008,20 @@ class TextGroundingDetector: ObservableObject {
         }
     }
 
-    // MARK: - Sync Detection (for camera / video -- no masks)
+    // MARK: - Sync Detection (camera / video -- boxes + combined mask overlay)
 
-    func detectSync(pixelBuffer: CVPixelBuffer) -> [Detection] {
-        guard let cgImage = cgImageFromPixelBuffer(pixelBuffer) else { return [] }
-        return runDetection(cgImage: cgImage, needMasks: false).detections
+    func detectSync(pixelBuffer: CVPixelBuffer) -> DetectionResult {
+        guard let cgImage = cgImageFromPixelBuffer(pixelBuffer) else {
+            return DetectionResult(detections: [], maskData: nil)
+        }
+        return runDetection(cgImage: cgImage, needMasks: true)
     }
 
-    func detectSync(image: UIImage) -> [Detection] {
-        guard let cgImage = normalizedCGImage(image) else { return [] }
-        return runDetection(cgImage: cgImage, needMasks: false).detections
+    func detectSync(image: UIImage) -> DetectionResult {
+        guard let cgImage = normalizedCGImage(image) else {
+            return DetectionResult(detections: [], maskData: nil)
+        }
+        return runDetection(cgImage: cgImage, needMasks: true)
     }
 
     // MARK: - Detection with Masks (for photo mode)
@@ -1090,14 +1124,19 @@ class TextGroundingDetector: ObservableObject {
             }
 
             var maskData: MaskData? = nil
+            var maskImage: CGImage? = nil
             if needMasks,
                let coeffsMA = output.featureValue(for: "mask_coeffs")?.multiArrayValue,
                let protosMA = output.featureValue(for: "mask_protos")?.multiArrayValue {
-                maskData = MaskData(coeffs: readMatrix2D(coeffsMA),
-                                    protos: readProtos(protosMA),
-                                    numAnchors: numAnchors)
+                let md = MaskData(coeffs: readMatrix2D(coeffsMA),
+                                  protos: readProtos(protosMA),
+                                  numAnchors: numAnchors)
+                maskData = md
+                maskImage = buildCombinedMask(detections, md,
+                                              padX: padX, padY: padY, scale: scale,
+                                              imgW: imgW, imgH: imgH)
             }
-            return DetectionResult(detections: detections, maskData: maskData)
+            return DetectionResult(detections: detections, maskData: maskData, maskImage: maskImage)
         } catch {
             return DetectionResult(detections: [], maskData: nil)
         }
@@ -1261,6 +1300,83 @@ class TextGroundingDetector: ObservableObject {
             }
         }
         return out
+    }
+
+    // MARK: - Combined instance-mask overlay (yolo-ios-app fast method)
+
+    /// Build one proto-resolution RGBA overlay for all detections in a single BLAS matmul
+    /// (coeffs[N,32] x protos[32,HW]), composite per-bbox lowest-score-first, then crop out
+    /// the letterbox so the result matches the original-image aspect. nil if no detections.
+    private func buildCombinedMask(_ dets: [Detection], _ md: MaskData,
+                                   padX: Float, padY: Float, scale: Float,
+                                   imgW: Int, imgH: Int) -> CGImage? {
+        let n = dets.count
+        guard n > 0 else { return nil }
+        let mc = 32, mw = 160, mh = 160, hw = mw * mh
+
+        // Gather coeffs A[n,32] for the kept anchors, then combined[n,hw] = A x protos.
+        var a = [Float](repeating: 0, count: n * mc)
+        for (i, d) in dets.enumerated() {
+            for k in 0..<mc { a[i * mc + k] = md.coeffs[k * md.numAnchors + d.anchorIndex] }
+        }
+        var comb = [Float](repeating: 0, count: n * hw)
+        a.withUnsafeBufferPointer { aP in
+            md.protos.withUnsafeBufferPointer { bP in
+                cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                            Int32(n), Int32(hw), Int32(mc),
+                            1.0, aP.baseAddress, Int32(mc),
+                            bP.baseAddress, Int32(hw),
+                            0.0, &comb, Int32(hw))
+            }
+        }
+
+        // Composite into one proto-res RGBA buffer (lowest score first -> highest on top).
+        var px = [UInt8](repeating: 0, count: hw * 4)
+        let s160 = Float(mw) / Float(inputSize)      // 160 / 640
+        let order = dets.indices.sorted { dets[$0].confidence < dets[$1].confidence }
+        for i in order {
+            let d = dets[i], r = d.normRect
+            // original-normalized box -> 640 letterbox -> 160 proto space
+            let x0 = (Float(r.minX) * Float(imgW) * scale + padX) * s160
+            let y0 = (Float(r.minY) * Float(imgH) * scale + padY) * s160
+            let x1 = (Float(r.maxX) * Float(imgW) * scale + padX) * s160
+            let y1 = (Float(r.maxY) * Float(imgH) * scale + padY) * s160
+            let bx0 = max(0, min(mw - 1, Int(x0))), bx1 = max(0, min(mw - 1, Int(x1)))
+            let by0 = max(0, min(mh - 1, Int(y0))), by1 = max(0, min(mh - 1, Int(y1)))
+            guard bx1 >= bx0, by1 >= by0 else { continue }
+            let (cr, cg, cb) = rgbComponents(colors[d.classIndex % colors.count])
+            let base = i * hw
+            for y in by0...by1 {
+                let row = y * mw
+                for x in bx0...bx1 where comb[base + row + x] > 0 {  // logit>0 == sigmoid>0.5
+                    let o = (row + x) * 4
+                    px[o] = cr; px[o + 1] = cg; px[o + 2] = cb; px[o + 3] = 255
+                }
+            }
+        }
+
+        guard let full = makeRGBA(px, mw, mh) else { return nil }
+        // De-letterbox so the overlay matches the original frame (shown with the same gravity).
+        let cx = Int((padX * s160).rounded()), cy = Int((padY * s160).rounded())
+        let cw = Int((Float(imgW) * scale * s160).rounded())
+        let ch = Int((Float(imgH) * scale * s160).rounded())
+        let crop = CGRect(x: cx, y: cy, width: max(1, min(cw, mw - cx)), height: max(1, min(ch, mh - cy)))
+        return full.cropping(to: crop) ?? full
+    }
+
+    private func rgbComponents(_ c: UIColor) -> (UInt8, UInt8, UInt8) {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        c.getRed(&r, green: &g, blue: &b, alpha: &a)
+        return (UInt8(max(0, min(1, r)) * 255), UInt8(max(0, min(1, g)) * 255), UInt8(max(0, min(1, b)) * 255))
+    }
+
+    private func makeRGBA(_ px: [UInt8], _ w: Int, _ h: Int) -> CGImage? {
+        let cs = CGColorSpaceCreateDeviceRGB()
+        let info = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+        guard let provider = CGDataProvider(data: Data(px) as CFData) else { return nil }
+        return CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 32,
+                       bytesPerRow: w * 4, space: cs, bitmapInfo: info, provider: provider,
+                       decode: nil, shouldInterpolate: false, intent: .defaultIntent)
     }
 }
 
