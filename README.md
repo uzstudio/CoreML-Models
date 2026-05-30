@@ -342,7 +342,7 @@ YOLO-World: Real-Time Open-Vocabulary Object Detection. Type any text query and 
 
 ### YOLOE
 
-YOLOE: Real-Time Open-Vocabulary **Detection + Instance Segmentation**. Type any text query and detect *and* segment it — no fixed class list. Unlike YOLO-World, the detector outputs per-anchor **region embeddings** and the region–text similarity runs in Swift against cached MobileCLIP text embeddings, so switching the query never re-runs the image branch. Available in **S** (fast) and **L** (accurate) — each size ships its own detector + RepRTA; the MobileCLIP encoder and vocab are shared. See [YOLOEDemo](sample_apps/YOLOEDemo) for the exact 513-dim BNContrastiveHead decomposition.
+YOLOE: Real-Time Open-Vocabulary **Detection + Instance Segmentation**. Type any text query and detect *and* segment it — no fixed class list. Unlike YOLO-World, the detector outputs per-anchor **region embeddings** and the region–text similarity runs in Swift against cached MobileCLIP text embeddings, so switching the query never re-runs the image branch. Available in **S** (fast) and **L** (accurate) — each size ships its own detector + RepRTA; the MobileCLIP encoder and vocab are shared. Real-time instance masks render in camera/video via the [yolo-ios-app](https://github.com/ultralytics/yolo-ios-app) combined-mask fast path. See [YOLOEDemo](sample_apps/YOLOEDemo) for the exact 513-dim BNContrastiveHead decomposition.
 
 | Download Link | Size | Description | Original Project | License | Year | Sample Project |
 | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- |

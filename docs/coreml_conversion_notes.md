@@ -632,3 +632,39 @@ The text path (MobileCLIP → `reprta` residual MLP → L2-normalize) matches YO
 the normalize in Swift. MobileCLIP itself is Apple's official Core ML export.
 
 ---
+
+## Real-Time Instance-Mask Rendering (YOLOv8-seg / YOLOE-seg) on iOS
+
+YOLO-seg heads emit `mask_coeffs [1, 32, A]` + `mask_protos [1, 32, h, w]`; each
+instance mask is `sigmoid(coeffs · protos)`. The naive renderer — loop every
+detection, compute its mask at full image resolution, and `CGContext`-fill it
+pixel-by-pixel (or route a freshly composited per-frame `CGImage` through a
+SwiftUI `@Published` + `Image(uiImage:)`) — is a video-rate killer.
+
+The fast path (ultralytics **yolo-ios-app** `generateCombinedMaskImage`, mirrored
+by this repo's `FastSAMDemo` and `YOLOEDemo`):
+
+1. **One BLAS matmul for all instances.** Gather the kept anchors' coefficients
+   into `A[N, 32]`, then `C[N, HW] = A · protos[32, HW]` in a single
+   `cblas_sgemm` / `vDSP_mmul`. (Don't loop per-instance.)
+2. **One small RGBA buffer at proto resolution** (e.g. 160×160, not full image).
+   Sort detections by score ascending (high score painted last → on top); for
+   each, paint only its bbox region where the **raw logit > 0** (≡ `sigmoid > 0.5`
+   — skip the sigmoid) with the class colour.
+3. **One `CGImage`** from that buffer → push to a `maskLayer.contents`. Core
+   Animation upscales it (`magnificationFilter = .nearest`, `contentsGravity`
+   matching the preview). No per-pixel `CGContext` draw, no SwiftUI churn.
+
+**Alignment with a letterboxed model input:** the proto mask lives in the padded
+square (e.g. 160 = 640/4). Crop out the letterbox — region
+`[padX, padY, imgW·scale, imgH·scale]` in proto coords — so the overlay matches the
+**original-frame** aspect, then display it with the *same* gravity the preview uses
+(`resizeAspectFill` for camera, aspect-fit for video). Boxes and mask then share one
+transform and stay registered.
+
+**Never route a video-rate `CGImage` through `@Published`.** Set `CALayer.contents`
+directly (hop to main, `CATransaction.setDisableActions(true)`); that single layer
+update per frame is the whole point. See `YOLOEDemo/ContentView.swift`
+(`buildCombinedMask`, the camera `maskLayer`) and `FastSAMDemo/CameraController.swift`.
+
+---
