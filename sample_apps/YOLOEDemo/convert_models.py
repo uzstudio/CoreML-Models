@@ -51,6 +51,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import coremltools as ct
 from coremltools.converters.mil.frontend.torch import ops as _ct_ops
 from coremltools.converters.mil import Builder as mb
@@ -239,6 +240,97 @@ def convert_reprta(model_name: str, output_dir: Path, max_classes: int = 80):
 
 
 # ---------------------------------------------------------------------------
+# Visual Prompt Encoder (SAVPE): image + box-mask -> VPE, a drop-in for the
+# text query embedding. Lets you detect "the same object as this reference".
+# ---------------------------------------------------------------------------
+
+class VisualPromptEncoder(nn.Module):
+    """backbone+neck -> SAVPE(feats, mask) -> normalized VPE [1, 1, 512].
+
+    The mask is an 80x80 binary box mask (the model input is 640, SAVPE works at
+    stride 8). Q is fixed to 1 (single reference object). SAVPE's forward is
+    re-implemented with concrete shapes and an FP16-safe softmax mask, dropping
+    the `expand(-1, ...)` / `logical_not` / `finfo.min` ops coremltools dislikes.
+    """
+
+    def __init__(self, yoloe_model):
+        super().__init__()
+        self.layers = nn.ModuleList(list(yoloe_model.model[:-1]))
+        self.head = yoloe_model.model[-1]
+        self.savpe = self.head.savpe
+        self._f = [m.f for m in yoloe_model.model[:-1]]
+        self._save = set(yoloe_model.save)
+        self._head_f = self.head.f
+
+    def _backbone(self, image):
+        y = [None] * len(self.layers)
+        x = image
+        for i, m in enumerate(self.layers):
+            f = self._f[i]
+            if f != -1:
+                x = y[f] if isinstance(f, int) else [x if j == -1 else y[j] for j in f]
+            x = m(x)
+            y[i] = x if i in self._save else None
+        return [y[j] for j in self._head_f]
+
+    def forward(self, image, mask):  # mask: [1, 1, 80, 80]
+        x = self._backbone(image)
+        s = self.savpe
+        y = s.cv4(torch.cat([s.cv2[i](xi) for i, xi in enumerate(x)], 1))   # [1,16,80,80]
+        xx = s.cv3(torch.cat([s.cv1[i](xi) for i, xi in enumerate(x)], 1))  # [1,512,80,80]
+        C, H, W = EMBED, xx.shape[2], xx.shape[3]
+        c = s.c
+        xx = xx.view(1, C, H * W)
+        ymap = s.cv6(torch.cat((y, s.cv5(mask.reshape(1, 1, H, W))), dim=1))
+        ymap = ymap.reshape(1, 1, c, H * W)
+        vpf = mask.reshape(1, 1, 1, H * W)
+        score = ymap * vpf + (1.0 - vpf) * (-6.0e4)        # FP16-safe masked softmax
+        score = F.softmax(score, dim=-1)
+        agg = score.transpose(-2, -3) @ xx.reshape(1, c, C // c, H * W).transpose(-1, -2)
+        out = agg.transpose(-2, -3).reshape(1, 1, C)
+        return F.normalize(out, dim=-1, p=2)               # [1, 1, 512]
+
+
+def convert_visual_encoder(model_name: str, output_dir: Path, input_size: int = 640):
+    print("\n=== Converting Visual Prompt Encoder (SAVPE) ===")
+    from ultralytics import YOLOE
+
+    model = YOLOE(f"{model_name}.pt")
+    wm = model.model
+    wm.eval()
+    wrapper = VisualPromptEncoder(wm).eval()
+
+    dummy_img = torch.rand(1, 3, input_size, input_size)
+    dummy_mask = torch.zeros(1, 1, input_size // 8, input_size // 8)
+    dummy_mask[:, :, 20:50, 20:50] = 1.0
+    with torch.no_grad():
+        vpe = wrapper(dummy_img, dummy_mask)
+    print(f"  vpe {tuple(vpe.shape)}")
+
+    with torch.no_grad():
+        traced = torch.jit.trace(wrapper, (dummy_img, dummy_mask), check_trace=False)
+
+    mlmodel = ct.convert(
+        traced,
+        inputs=[
+            ct.TensorType(name="image", shape=(1, 3, input_size, input_size)),
+            ct.TensorType(name="mask", shape=(1, 1, input_size // 8, input_size // 8)),
+        ],
+        outputs=[ct.TensorType(name="vpe")],
+        compute_precision=ct.precision.FLOAT16,
+        minimum_deployment_target=ct.target.iOS16,
+    )
+    mlmodel.author = "coreml-models"
+    mlmodel.short_description = f"YOLOE {model_name} visual prompt encoder (SAVPE)"
+    mlmodel.version = "2.0.0"
+
+    out = output_dir / "visual_prompt_encoder.mlpackage"
+    mlmodel.save(str(out))
+    print(f"  Saved {out}")
+    return out
+
+
+# ---------------------------------------------------------------------------
 # CLIP BPE vocabulary (same format the Swift CLIPTokenizer expects)
 # ---------------------------------------------------------------------------
 
@@ -289,6 +381,7 @@ def main():
 
     convert_detector(model_name, output_dir)
     convert_reprta(model_name, output_dir)
+    convert_visual_encoder(model_name, output_dir)
     if not args.skip_vocab:
         export_vocabulary(output_dir)
 

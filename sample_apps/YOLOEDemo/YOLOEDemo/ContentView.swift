@@ -26,6 +26,9 @@ struct ContentView: View {
                 CameraDetectionView(detector: detector, threshold: $threshold)
                     .tabItem { Label("Camera", systemImage: "camera") }
                     .tag(2)
+                VisualDetectionView(detector: detector, threshold: $threshold)
+                    .tabItem { Label("Visual", systemImage: "viewfinder") }
+                    .tag(3)
             }
 
             if !detector.isModelLoaded {
@@ -578,8 +581,9 @@ struct VideoTransferable: Transferable {
 struct CameraDetectionView: View {
     let detector: TextGroundingDetector
     @Binding var threshold: Float
+    var showsQueryUI: Bool = true   // false when driven by an external (e.g. visual) query
     var body: some View {
-        CameraVCWrapper(detector: detector, threshold: $threshold)
+        CameraVCWrapper(detector: detector, threshold: $threshold, showsQueryUI: showsQueryUI)
             .ignoresSafeArea(edges: .bottom)
     }
 }
@@ -587,7 +591,8 @@ struct CameraDetectionView: View {
 struct CameraVCWrapper: UIViewControllerRepresentable {
     let detector: TextGroundingDetector
     @Binding var threshold: Float
-    func makeUIViewController(context: Context) -> CameraVC { CameraVC(detector: detector) }
+    var showsQueryUI: Bool = true
+    func makeUIViewController(context: Context) -> CameraVC { CameraVC(detector: detector, showsQueryUI: showsQueryUI) }
     func updateUIViewController(_ vc: CameraVC, context: Context) {
         detector.confidenceThreshold = threshold
     }
@@ -613,9 +618,11 @@ class CameraVC: UIViewController, AVCaptureVideoDataOutputSampleBufferDelegate {
     // Query UI
     private let queryField = UITextField()
     private let queryBar = UIVisualEffectView(effect: UIBlurEffect(style: .dark))
+    private let showsQueryUI: Bool
 
-    init(detector: TextGroundingDetector) {
+    init(detector: TextGroundingDetector, showsQueryUI: Bool = true) {
         self.detector = detector
+        self.showsQueryUI = showsQueryUI
         super.init(nibName: nil, bundle: nil)
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -652,33 +659,35 @@ class CameraVC: UIViewController, AVCaptureVideoDataOutputSampleBufferDelegate {
         statsLabel.alignmentMode = .center
         view.layer.addSublayer(statsLabel)
 
-        // Query bar
-        queryBar.layer.cornerRadius = 12
-        queryBar.clipsToBounds = true
-        queryBar.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(queryBar)
+        // Query bar (text mode only; in visual mode the query is set externally)
+        if showsQueryUI {
+            queryBar.layer.cornerRadius = 12
+            queryBar.clipsToBounds = true
+            queryBar.translatesAutoresizingMaskIntoConstraints = false
+            view.addSubview(queryBar)
 
-        queryField.placeholder = "Objects (comma-separated)"
-        queryField.text = "person, dog, car"
-        queryField.borderStyle = .roundedRect
-        queryField.font = .systemFont(ofSize: 14)
-        queryField.returnKeyType = .search
-        queryField.autocorrectionType = .no
-        queryField.delegate = self
-        queryField.translatesAutoresizingMaskIntoConstraints = false
-        queryBar.contentView.addSubview(queryField)
+            queryField.placeholder = "Objects (comma-separated)"
+            queryField.text = "person, dog, car"
+            queryField.borderStyle = .roundedRect
+            queryField.font = .systemFont(ofSize: 14)
+            queryField.returnKeyType = .search
+            queryField.autocorrectionType = .no
+            queryField.delegate = self
+            queryField.translatesAutoresizingMaskIntoConstraints = false
+            queryBar.contentView.addSubview(queryField)
 
-        NSLayoutConstraint.activate([
-            queryBar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-            queryBar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-            queryBar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -8),
-            queryBar.heightAnchor.constraint(equalToConstant: 48),
-            queryField.leadingAnchor.constraint(equalTo: queryBar.contentView.leadingAnchor, constant: 8),
-            queryField.trailingAnchor.constraint(equalTo: queryBar.contentView.trailingAnchor, constant: -8),
-            queryField.centerYAnchor.constraint(equalTo: queryBar.contentView.centerYAnchor),
-        ])
+            NSLayoutConstraint.activate([
+                queryBar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+                queryBar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+                queryBar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -8),
+                queryBar.heightAnchor.constraint(equalToConstant: 48),
+                queryField.leadingAnchor.constraint(equalTo: queryBar.contentView.leadingAnchor, constant: 8),
+                queryField.trailingAnchor.constraint(equalTo: queryBar.contentView.trailingAnchor, constant: -8),
+                queryField.centerYAnchor.constraint(equalTo: queryBar.contentView.centerYAnchor),
+            ])
 
-        detector.updateQueries(queryField.text ?? "")
+            detector.updateQueries(queryField.text ?? "")
+        }
 
         AVCaptureDevice.requestAccess(for: .video) { [weak self] ok in
             guard ok else { return }
@@ -806,6 +815,161 @@ extension CameraVC: UITextFieldDelegate {
     }
 }
 
+// MARK: - Visual Prompt Detection (detect "the same object" as a reference region)
+
+struct VisualDetectionView: View {
+    let detector: TextGroundingDetector
+    @Binding var threshold: Float
+
+    @State private var selectedItem: PhotosPickerItem?
+    @State private var refImage: UIImage?
+    @State private var dragRect: CGRect = .zero    // live drag, container coords
+    @State private var boxNorm: CGRect?            // normalized box on the reference image
+    @State private var queryActive = false
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            if queryActive { liveCamera } else { selection }
+        }
+        .onChange(of: selectedItem) { _ in loadRef() }
+    }
+
+    // Live camera detecting the visual query (no text field).
+    private var liveCamera: some View {
+        ZStack(alignment: .top) {
+            CameraDetectionView(detector: detector, threshold: $threshold, showsQueryUI: false)
+            HStack(spacing: 10) {
+                if let crop = croppedObject() {
+                    Image(uiImage: crop).resizable().scaledToFill()
+                        .frame(width: 42, height: 42).clipShape(RoundedRectangle(cornerRadius: 8))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(0.6)))
+                }
+                Text("Finding similar objects").font(.caption).foregroundColor(.white)
+                Spacer()
+                Button { queryActive = false } label: {
+                    Label("Change", systemImage: "arrow.uturn.backward").font(.caption.bold())
+                        .foregroundColor(.white).padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(Color.blue, in: Capsule())
+                }
+            }
+            .padding(.horizontal, 14).padding(.vertical, 10)
+            .background(.ultraThinMaterial)
+            .padding(.top, 50)
+        }
+        .onAppear { applyVisualQuery() }   // (re)assert in case another tab changed the query
+    }
+
+    // Pick a reference image and draw a box over the target object.
+    private var selection: some View {
+        VStack(spacing: 0) {
+            if let refImage {
+                GeometryReader { geo in
+                    let fit = fittedRect(refImage.size, geo.size)
+                    ZStack(alignment: .topLeading) {
+                        Image(uiImage: refImage).resizable().scaledToFit()
+                            .frame(width: geo.size.width, height: geo.size.height)
+                        if dragRect.width > 1 {
+                            Rectangle().fill(Color.yellow.opacity(0.18))
+                                .frame(width: dragRect.width, height: dragRect.height)
+                                .overlay(Rectangle().stroke(Color.yellow, lineWidth: 3))
+                                .position(x: dragRect.midX, y: dragRect.midY)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 4)
+                            .onChanged { v in
+                                let a = clamp(v.startLocation, fit), b = clamp(v.location, fit)
+                                dragRect = CGRect(x: min(a.x, b.x), y: min(a.y, b.y),
+                                                  width: abs(a.x - b.x), height: abs(a.y - b.y))
+                            }
+                            .onEnded { _ in
+                                guard dragRect.width > 8, dragRect.height > 8 else { return }
+                                boxNorm = CGRect(x: (dragRect.minX - fit.minX) / fit.width,
+                                                 y: (dragRect.minY - fit.minY) / fit.height,
+                                                 width: dragRect.width / fit.width,
+                                                 height: dragRect.height / fit.height)
+                            }
+                    )
+                }
+            } else {
+                Spacer()
+                PhotosPicker(selection: $selectedItem, matching: .images) {
+                    VStack(spacing: 12) {
+                        Image(systemName: "viewfinder").font(.system(size: 48))
+                        Text("Pick a reference photo,\nthen draw a box on the object")
+                            .multilineTextAlignment(.center).font(.subheadline)
+                    }.foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+
+            VStack(spacing: 8) {
+                Text(refImage == nil ? "Detect any object by example — no text needed"
+                     : (boxNorm == nil ? "Drag a box around the target object" : "Tap Detect to find it live"))
+                    .font(.caption).foregroundColor(.white.opacity(0.85))
+                HStack(spacing: 12) {
+                    PhotosPicker(selection: $selectedItem, matching: .images) {
+                        Label("Photo", systemImage: "photo").font(.subheadline.bold())
+                            .foregroundColor(.white).padding(.horizontal, 12).padding(.vertical, 8)
+                            .background(.ultraThinMaterial, in: Capsule())
+                    }
+                    Spacer()
+                    Button { startDetection() } label: {
+                        Label("Detect", systemImage: "viewfinder").font(.subheadline.bold())
+                            .foregroundColor(.white).padding(.horizontal, 16).padding(.vertical, 8)
+                            .background(boxNorm == nil ? Color.gray : Color.blue, in: Capsule())
+                    }.disabled(boxNorm == nil)
+                }
+            }
+            .padding(.horizontal, 16).padding(.vertical, 12)
+            .background(.ultraThinMaterial)
+        }
+    }
+
+    private func startDetection() {
+        guard boxNorm != nil else { return }
+        applyVisualQuery()
+        queryActive = true
+    }
+
+    private func applyVisualQuery() {
+        guard let refImage, let box = boxNorm else { return }
+        detector.setVisualQuery(referenceImage: refImage, box: box)
+    }
+
+    private func loadRef() {
+        guard let selectedItem else { return }
+        dragRect = .zero; boxNorm = nil
+        Task {
+            if let data = try? await selectedItem.loadTransferable(type: Data.self),
+               let ui = UIImage(data: data) {
+                await MainActor.run { refImage = ui }
+            }
+        }
+    }
+
+    private func croppedObject() -> UIImage? {
+        guard let refImage, let b = boxNorm, let cg = refImage.cgImage else { return nil }
+        let W = CGFloat(cg.width), H = CGFloat(cg.height)
+        let rect = CGRect(x: b.minX * W, y: b.minY * H, width: b.width * W, height: b.height * H)
+        guard let cropped = cg.cropping(to: rect.integral) else { return nil }
+        return UIImage(cgImage: cropped, scale: refImage.scale, orientation: refImage.imageOrientation)
+    }
+
+    private func fittedRect(_ imageSize: CGSize, _ container: CGSize) -> CGRect {
+        guard imageSize.width > 0, imageSize.height > 0 else { return .zero }
+        let s = min(container.width / imageSize.width, container.height / imageSize.height)
+        let w = imageSize.width * s, h = imageSize.height * s
+        return CGRect(x: (container.width - w) / 2, y: (container.height - h) / 2, width: w, height: h)
+    }
+
+    private func clamp(_ p: CGPoint, _ r: CGRect) -> CGPoint {
+        CGPoint(x: min(max(p.x, r.minX), r.maxX), y: min(max(p.y, r.minY), r.maxY))
+    }
+}
+
 // MARK: - Bounding Box View (CALayer pool for camera)
 
 class BoundingBoxView {
@@ -897,6 +1061,7 @@ class TextGroundingDetector: ObservableObject {
     private var visualModel: MLModel?            // yoloe_detector: image -> boxes, region_embeddings, masks
     private var textEncoder: MLModel?            // Apple mobileclip_blt_text: text[1,77] -> final_emb_1[1,512]
     private var reprtaModel: MLModel?            // YOLOE reprta: raw_tpe[1,80,512] -> tpe[1,80,512]
+    private var visualEncoder: MLModel?          // YOLOE SAVPE: image + mask[1,1,80,80] -> vpe[1,1,512]
     private var tokenizer: CLIPTokenizer?
 
     private let embedDim = 512
@@ -904,6 +1069,7 @@ class TextGroundingDetector: ObservableObject {
     private let reprtaSlots = 80                  // reprta input is a fixed [1,80,512] buffer
     private let numAnchors = 8400
     private let inputSize = 640
+    private let maskSize = 80                     // SAVPE prompt-mask resolution (640 / 8)
     var confidenceThreshold: Float = 0.15
     private let nmsThreshold: Float = 0.5
     private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
@@ -911,10 +1077,11 @@ class TextGroundingDetector: ObservableObject {
     private var imageArray: MLMultiArray?
     private var cachedQueryString = ""
     private(set) var cachedQueries: [String] = []
-    /// Cached text embeddings, row-major [N, 513] = [normalize(reprta(clip)), 1.0].
-    /// Per-frame similarity is logit = textPrime · region', score = sigmoid(logit),
-    /// which reproduces YOLOE's BNContrastiveHead exactly.
-    private var cachedTextPrime: [Float] = []
+    /// Cached query embeddings, row-major [N, 513] = [normalize(query), 1.0]. The query
+    /// can be text (MobileCLIP -> reprta) or visual (SAVPE) — both live in the same space.
+    /// Per-frame similarity is logit = query' · region', score = sigmoid(logit),
+    /// reproducing YOLOE's BNContrastiveHead exactly.
+    private var cachedQueryPrime: [Float] = []
 
     /// Last mask data from the most recent detection (for threshold re-rendering)
     var lastMaskData: MaskData?
@@ -938,6 +1105,10 @@ class TextGroundingDetector: ObservableObject {
             textEncoder = try MLModel(contentsOf: e, configuration: config)
             reprtaModel = try MLModel(contentsOf: r, configuration: config)
             tokenizer = try CLIPTokenizer(vocabularyURL: v)
+            // Optional: visual prompt encoder (SAVPE). Detection still works without it.
+            if let vp = Bundle.main.url(forResource: "visual_prompt_encoder", withExtension: "mlmodelc") {
+                visualEncoder = try MLModel(contentsOf: vp, configuration: config)
+            }
             DispatchQueue.main.async { self.isModelLoaded = true }
         } catch {
             print("[YOLOE] Model load failed: \(error)")
@@ -955,7 +1126,7 @@ class TextGroundingDetector: ObservableObject {
         }.filter { !$0.isEmpty }
 
         guard !queries.isEmpty, let textEncoder, let reprtaModel, let tokenizer else {
-            cachedQueries = []; cachedTextPrime = []; return
+            cachedQueries = []; cachedQueryPrime = []; return
         }
         let n = min(queries.count, reprtaSlots)
         cachedQueries = Array(queries.prefix(n))
@@ -990,7 +1161,7 @@ class TextGroundingDetector: ObservableObject {
             let reprtaInput = try MLDictionaryFeatureProvider(dictionary: ["raw_tpe": MLFeatureValue(multiArray: rawTpe)])
             let reprtaOutput = try reprtaModel.prediction(from: reprtaInput)
             guard let tpeMA = reprtaOutput.featureValue(for: "tpe")?.multiArrayValue else {
-                cachedTextPrime = []; return
+                cachedQueryPrime = []; return
             }
             let tpe = readFloat(tpeMA)  // [1, 80, 512]
 
@@ -1004,9 +1175,56 @@ class TextGroundingDetector: ObservableObject {
                 for c in 0..<embedDim { textPrime[i * augDim + c] = tpe[off + c] * inv }
                 textPrime[i * augDim + embedDim] = 1.0  // bias channel multiplier
             }
-            cachedTextPrime = textPrime
+            cachedQueryPrime = textPrime
         } catch {
-            cachedQueries = []; cachedTextPrime = []
+            cachedQueries = []; cachedQueryPrime = []
+        }
+    }
+
+    // MARK: - Visual query (detect "the same object" as a reference region)
+
+    /// Encode a boxed object from a reference image into a visual prompt embedding
+    /// (SAVPE) and cache it as the query — a drop-in for the text path. `box` is in
+    /// normalized reference-image coords [0,1], origin top-left. `label` names the result.
+    func setVisualQuery(referenceImage: UIImage, box: CGRect, label: String = "Object") {
+        guard let visualEncoder, let cg = normalizedCGImage(referenceImage) else { return }
+        cachedQueryString = "\u{1F5BC} " + label   // marker so a later text update still applies
+        do {
+            let (tensor, imgW, imgH, padX, padY, scale) = try preprocessImage(cg, fresh: true)
+
+            // box (normalized) -> 640 letterbox -> /8 -> binary 80x80 mask.
+            let mask = try MLMultiArray(shape: [1, 1, maskSize as NSNumber, maskSize as NSNumber], dataType: .float32)
+            let mp = mask.dataPointer.bindMemory(to: Float32.self, capacity: maskSize * maskSize)
+            memset(mp, 0, maskSize * maskSize * 4)
+            let s8 = Float(maskSize) / Float(inputSize)   // 80 / 640
+            func toMask(_ nx: CGFloat, _ ny: CGFloat) -> (Int, Int) {
+                let x = (Float(nx) * Float(imgW) * scale + padX) * s8
+                let y = (Float(ny) * Float(imgH) * scale + padY) * s8
+                return (Int(x.rounded()), Int(y.rounded()))
+            }
+            let (mx0, my0) = toMask(box.minX, box.minY)
+            let (mx1, my1) = toMask(box.maxX, box.maxY)
+            let x0 = max(0, min(maskSize - 1, mx0)), x1 = max(0, min(maskSize, mx1))
+            let y0 = max(0, min(maskSize - 1, my0)), y1 = max(0, min(maskSize, my1))
+            guard x1 > x0, y1 > y0 else { return }
+            for y in y0..<y1 { for x in x0..<x1 { mp[y * maskSize + x] = 1.0 } }
+
+            let input = try MLDictionaryFeatureProvider(dictionary: [
+                "image": MLFeatureValue(multiArray: tensor),
+                "mask": MLFeatureValue(multiArray: mask),
+            ])
+            let out = try visualEncoder.prediction(from: input)
+            guard let vpeMA = out.featureValue(for: "vpe")?.multiArrayValue else { return }
+            let vpe = readFloat(vpeMA)   // [1,1,512], already L2-normalized by SAVPE
+
+            // query' = [vpe, 1.0] -> [1, 513]
+            var q = [Float](repeating: 0, count: augDim)
+            for c in 0..<embedDim { q[c] = vpe[c] }
+            q[embedDim] = 1.0
+            cachedQueries = [label]
+            cachedQueryPrime = q
+        } catch {
+            cachedQueries = []; cachedQueryPrime = []
         }
     }
 
@@ -1044,7 +1262,7 @@ class TextGroundingDetector: ObservableObject {
 
     private func runDetection(cgImage: CGImage, needMasks: Bool) -> DetectionResult {
         // Snapshot the text cache so a concurrent updateQueries() can't tear it.
-        let textPrime = cachedTextPrime
+        let textPrime = cachedQueryPrime
         let queries = cachedQueries
         guard let visualModel, !textPrime.isEmpty, queries.count == textPrime.count / augDim else {
             return DetectionResult(detections: [], maskData: nil)
@@ -1146,7 +1364,7 @@ class TextGroundingDetector: ObservableObject {
 
     // MARK: - Preprocessing
 
-    private func preprocessImage(_ cgImage: CGImage) throws
+    private func preprocessImage(_ cgImage: CGImage, fresh: Bool = false) throws
         -> (MLMultiArray, Int, Int, Float, Float, Float)
     {
         let imgW = cgImage.width, imgH = cgImage.height
@@ -1174,11 +1392,19 @@ class TextGroundingDetector: ObservableObject {
         ctx.draw(rendered, in: CGRect(x: 0, y: 0, width: inputSize, height: inputSize))
         guard let pixels = ctx.data else { throw NSError(domain: "Preprocess", code: 3) }
 
-        if imageArray == nil {
-            imageArray = try MLMultiArray(
-                shape: [1, 3, inputSize as NSNumber, inputSize as NSNumber], dataType: .float32)
+        // `fresh` allocates a private buffer (visual-prompt path) so it can't race the
+        // camera's shared imageArray on the inference queue.
+        let arr: MLMultiArray
+        if fresh {
+            arr = try MLMultiArray(shape: [1, 3, inputSize as NSNumber, inputSize as NSNumber], dataType: .float32)
+        } else {
+            if imageArray == nil {
+                imageArray = try MLMultiArray(
+                    shape: [1, 3, inputSize as NSNumber, inputSize as NSNumber], dataType: .float32)
+            }
+            arr = imageArray!
         }
-        let dst = imageArray!.dataPointer.bindMemory(to: Float32.self, capacity: 3 * inputSize * inputSize)
+        let dst = arr.dataPointer.bindMemory(to: Float32.self, capacity: 3 * inputSize * inputSize)
         let src = pixels.bindMemory(to: UInt8.self, capacity: inputSize * inputSize * 4)
 
         let hw = inputSize * inputSize
@@ -1189,7 +1415,7 @@ class TextGroundingDetector: ObservableObject {
             dst[2 * hw + i] = Float(src[i * 4 + 2]) * inv
         }
 
-        return (imageArray!, imgW, imgH, Float(padX), Float(padY), scale)
+        return (arr, imgW, imgH, Float(padX), Float(padY), scale)
     }
 
     /// Normalize UIImage orientation so cgImage matches the displayed orientation.

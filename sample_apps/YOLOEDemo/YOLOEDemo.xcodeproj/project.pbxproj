@@ -14,6 +14,7 @@
 		E20000010000000000000005 /* yoloe_detector.mlpackage in Sources */ = {isa = PBXBuildFile; fileRef = E20000020000000000000005 /* yoloe_detector.mlpackage */; };
 		E20000010000000000000006 /* mobileclip_blt_text.mlpackage in Sources */ = {isa = PBXBuildFile; fileRef = E20000020000000000000006 /* mobileclip_blt_text.mlpackage */; };
 		E20000010000000000000009 /* reprta.mlpackage in Sources */ = {isa = PBXBuildFile; fileRef = E20000020000000000000009 /* reprta.mlpackage */; };
+		E2000001000000000000000A /* visual_prompt_encoder.mlpackage in Sources */ = {isa = PBXBuildFile; fileRef = E2000002000000000000000A /* visual_prompt_encoder.mlpackage */; };
 		E20000010000000000000007 /* clip_vocab.json in Resources */ = {isa = PBXBuildFile; fileRef = E20000020000000000000007 /* clip_vocab.json */; };
 /* End PBXBuildFile section */
 
@@ -25,6 +26,7 @@
 		E20000020000000000000005 /* yoloe_detector.mlpackage */ = {isa = PBXFileReference; lastKnownFileType = folder.mlpackage; path = yoloe_detector.mlpackage; sourceTree = "<group>"; };
 		E20000020000000000000006 /* mobileclip_blt_text.mlpackage */ = {isa = PBXFileReference; lastKnownFileType = folder.mlpackage; path = mobileclip_blt_text.mlpackage; sourceTree = "<group>"; };
 		E20000020000000000000009 /* reprta.mlpackage */ = {isa = PBXFileReference; lastKnownFileType = folder.mlpackage; path = reprta.mlpackage; sourceTree = "<group>"; };
+		E2000002000000000000000A /* visual_prompt_encoder.mlpackage */ = {isa = PBXFileReference; lastKnownFileType = folder.mlpackage; path = visual_prompt_encoder.mlpackage; sourceTree = "<group>"; };
 		E20000020000000000000007 /* clip_vocab.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = clip_vocab.json; sourceTree = "<group>"; };
 		E20000020000000000000008 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		E20000020000000000000010 /* YOLOEDemo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = YOLOEDemo.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -36,7 +38,7 @@
 
 /* Begin PBXGroup section */
 		E20000040000000000000001 = { isa = PBXGroup; children = (E20000040000000000000002, E20000040000000000000003); sourceTree = "<group>"; };
-		E20000040000000000000002 /* YOLOEDemo */ = { isa = PBXGroup; children = (E20000020000000000000001, E20000020000000000000002, E20000020000000000000003, E20000020000000000000005, E20000020000000000000006, E20000020000000000000009, E20000020000000000000007, E20000020000000000000004, E20000020000000000000008); path = YOLOEDemo; sourceTree = "<group>"; };
+		E20000040000000000000002 /* YOLOEDemo */ = { isa = PBXGroup; children = (E20000020000000000000001, E20000020000000000000002, E20000020000000000000003, E20000020000000000000005, E20000020000000000000006, E20000020000000000000009, E2000002000000000000000A, E20000020000000000000007, E20000020000000000000004, E20000020000000000000008); path = YOLOEDemo; sourceTree = "<group>"; };
 		E20000040000000000000003 /* Products */ = { isa = PBXGroup; children = (E20000020000000000000010); name = Products; sourceTree = "<group>"; };
 /* End PBXGroup section */
 
@@ -53,7 +55,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		E20000060000000000000001 /* Sources */ = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (E20000010000000000000001, E20000010000000000000002, E20000010000000000000003, E20000010000000000000005, E20000010000000000000006, E20000010000000000000009); runOnlyForDeploymentPostprocessing = 0; };
+		E20000060000000000000001 /* Sources */ = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (E20000010000000000000001, E20000010000000000000002, E20000010000000000000003, E20000010000000000000005, E20000010000000000000006, E20000010000000000000009, E2000001000000000000000A); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */

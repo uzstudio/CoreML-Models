@@ -668,3 +668,40 @@ update per frame is the whole point. See `YOLOEDemo/ContentView.swift`
 (`buildCombinedMask`, the camera `maskLayer`) and `FastSAMDemo/CameraController.swift`.
 
 ---
+
+## YOLOE Visual Prompts (SAVPE): "detect the same object as this image"
+
+YOLOE's open-vocab query doesn't have to be text. The **SAVPE** module turns a
+boxed region of a *reference* image into a **visual prompt embedding (VPE)** that
+lives in the *same* 512-d space as the text query — so it's a drop-in: cache
+`query' = [VPE, 1.0]` exactly like the text path and the per-frame
+`sigmoid(region' · query')` detection is unchanged. This is how you build a
+"show the app an object, then find more of it" feature with zero retraining.
+
+How it works:
+
+- SAVPE consumes the **same three head features** as the detector (`feats[16,19,22]`)
+  plus an **80×80 box mask** (`scale_factor = 1/8`; the 640 input → stride-8 grid).
+  Build the mask by mapping the box → 640 letterbox → ÷8 → binary fill.
+- It softmax-pools the masked region's features and returns an **already
+  L2-normalized** `[1, Q, 512]` embedding. No reprta, no extra normalize.
+- Q (number of reference objects) is fixed at convert time — Q=1 is the clean case.
+
+coremltools patches SAVPE.forward needs (ct 8.x/9.x):
+
+- `y.reshape(...).expand(-1, Q, -1, -1, -1)` — drop the `-1`s; with Q=1 it's a
+  no-op, otherwise use concrete sizes (the MPS tile bug hates `-1` multipliers).
+- `torch.logical_not(vp)` — replace with `(1.0 - vp)` (vp is a 0/1 float mask).
+- `score = y*vp + logical_not(vp) * torch.finfo(y.dtype).min` — the `finfo.min`
+  becomes `-inf` at FP16 → NaN after softmax. Use **`-6e4`** (FP16-safe mask).
+
+Parity: re-implemented SAVPE vs the stock module `cos = 1.0`; CoreML FP16 vs PyTorch
+`cos = 0.9993`. End-to-end on `bus.jpg`, prompting one person reproduces the
+official `YOLOEVPSegPredictor` detections (both people at the same boxes). One trap
+when testing: a prompt box that lands on background (e.g. the bus) yields ~0 score —
+that's correct model behaviour, not a bug; box an actual object.
+
+Reference: `convert_models.py::VisualPromptEncoder` / `convert_visual_encoder`,
+and `YOLOEDemo/ContentView.swift::setVisualQuery` (mask build) + the Visual tab.
+
+---

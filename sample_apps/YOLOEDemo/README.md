@@ -46,6 +46,7 @@ and through the FP16 CoreML model the top detection's anchor/class match exactly
 | `yoloe_detector.mlpackage` | ~20 MB (FP16) | YOLOE-11s-seg region-embedding detector + seg |
 | `reprta.mlpackage` | ~6 MB (FP32) | YOLOE RepRTA text-refinement MLP (`raw_tpe → tpe`) |
 | `mobileclip_blt_text.mlpackage` | ~121 MB | Apple MobileCLIP B-LT text encoder (`text → final_emb_1`) |
+| `visual_prompt_encoder.mlpackage` | ~20 MB (FP16) | YOLOE SAVPE (`image + mask[80²] → vpe`) for visual prompts |
 | `clip_vocab.json` | 1.6 MB | CLIP BPE vocabulary for the Swift tokenizer |
 
 `mobileclip_blt_text.mlpackage` is Apple's official Core ML export from
@@ -61,12 +62,19 @@ bundled files (Swift needs no changes: embed=512 is shared across S/M/L).
 - **Camera**: real-time open-vocabulary detection + live instance masks
 - **Photo**: pick from library, detect + colored instance masks, re-threshold without re-running
 - **Video**: pick a video, detect + masks frame-by-frame with overlay
+- **Visual**: pick a reference photo, draw a box on an object, then detect that object by example in the live camera — no text needed
 - **Open-vocabulary**: up to 80 simultaneous queries, any text; switching queries is free
 
 Live masks (camera/video) use the [yolo-ios-app](https://github.com/ultralytics/yolo-ios-app)
 fast path: one BLAS matmul `coeffs[N,32] x protos[32,160²]` builds every instance mask at
 proto resolution, composited into a single small RGBA image that Core Animation scales onto
 a `maskLayer` — no per-pixel CGContext draw, no SwiftUI churn per frame.
+
+**Visual prompts** (the Visual tab) use YOLOE's SAVPE module: the boxed reference region is
+encoded into a 512-d embedding that lives in the *same* space as the text query, so
+`setVisualQuery` just caches `[vpe, 1.0]` and the per-frame detection path is unchanged. The
+box becomes an 80×80 mask (640 input, stride 8); SAVPE softmax-pools the masked features and
+returns an already-normalized embedding. An **L** encoder is in the release too.
 
 ## Requirements
 
