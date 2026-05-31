@@ -618,6 +618,7 @@ class CameraVC: UIViewController, AVCaptureVideoDataOutputSampleBufferDelegate {
     // Query UI
     private let queryField = UITextField()
     private let queryBar = UIVisualEffectView(effect: UIBlurEffect(style: .dark))
+    private var queryBarBottom: NSLayoutConstraint?
     private let showsQueryUI: Bool
 
     init(detector: TextGroundingDetector, showsQueryUI: Bool = true) {
@@ -676,15 +677,25 @@ class CameraVC: UIViewController, AVCaptureVideoDataOutputSampleBufferDelegate {
             queryField.translatesAutoresizingMaskIntoConstraints = false
             queryBar.contentView.addSubview(queryField)
 
+            let barBottom = queryBar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -8)
+            queryBarBottom = barBottom
             NSLayoutConstraint.activate([
                 queryBar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
                 queryBar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-                queryBar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -8),
+                barBottom,
                 queryBar.heightAnchor.constraint(equalToConstant: 48),
                 queryField.leadingAnchor.constraint(equalTo: queryBar.contentView.leadingAnchor, constant: 8),
                 queryField.trailingAnchor.constraint(equalTo: queryBar.contentView.trailingAnchor, constant: -8),
                 queryField.centerYAnchor.constraint(equalTo: queryBar.contentView.centerYAnchor),
             ])
+
+            // Lift the query bar above the keyboard; tap the preview to dismiss it.
+            let nc = NotificationCenter.default
+            nc.addObserver(self, selector: #selector(keyboardWillChange(_:)), name: UIResponder.keyboardWillShowNotification, object: nil)
+            nc.addObserver(self, selector: #selector(keyboardWillChange(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
+            let tap = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
+            tap.cancelsTouchesInView = false
+            view.addGestureRecognizer(tap)
 
             detector.updateQueries(queryField.text ?? "")
         }
@@ -692,6 +703,23 @@ class CameraVC: UIViewController, AVCaptureVideoDataOutputSampleBufferDelegate {
         AVCaptureDevice.requestAccess(for: .video) { [weak self] ok in
             guard ok else { return }
             self?.sessionQueue.async { self?.setupCamera() }
+        }
+    }
+
+    @objc private func dismissKeyboard() { view.endEditing(true) }
+
+    @objc private func keyboardWillChange(_ note: Notification) {
+        guard let info = note.userInfo,
+              let end = (info[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue else { return }
+        let showing = note.name == UIResponder.keyboardWillShowNotification
+        // Bar sits 8pt above the keyboard while shown, else 8pt above the safe-area bottom.
+        let lift = showing ? (end.height - view.safeAreaInsets.bottom) : 0
+        queryBarBottom?.constant = -8 - max(0, lift)
+        let duration = (info[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
+        let curveRaw = (info[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt) ?? UInt(UIView.AnimationCurve.easeInOut.rawValue)
+        UIView.animate(withDuration: duration, delay: 0,
+                       options: UIView.AnimationOptions(rawValue: curveRaw << 16)) {
+            self.view.layoutIfNeeded()
         }
     }
 
