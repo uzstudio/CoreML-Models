@@ -854,6 +854,9 @@ struct VisualDetectionView: View {
     @State private var dragRect: CGRect = .zero    // live drag, container coords
     @State private var boxNorm: CGRect?            // normalized box on the reference image
     @State private var queryActive = false
+    @State private var showCamera = false
+
+    private var cameraAvailable: Bool { UIImagePickerController.isSourceTypeAvailable(.camera) }
 
     var body: some View {
         ZStack {
@@ -861,6 +864,10 @@ struct VisualDetectionView: View {
             if queryActive { liveCamera } else { selection }
         }
         .onChange(of: selectedItem) { _ in loadRef() }
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraPicker { img in refImage = img; dragRect = .zero; boxNorm = nil }
+                .ignoresSafeArea()
+        }
     }
 
     // Live camera detecting the visual query (no text field).
@@ -923,12 +930,24 @@ struct VisualDetectionView: View {
                 }
             } else {
                 Spacer()
-                PhotosPicker(selection: $selectedItem, matching: .images) {
-                    VStack(spacing: 12) {
-                        Image(systemName: "viewfinder").font(.system(size: 48))
-                        Text("Pick a reference photo,\nthen draw a box on the object")
-                            .multilineTextAlignment(.center).font(.subheadline)
-                    }.foregroundStyle(.secondary)
+                VStack(spacing: 16) {
+                    Image(systemName: "viewfinder").font(.system(size: 48)).foregroundStyle(.secondary)
+                    Text("Capture or pick a reference photo,\nthen draw a box on the object")
+                        .multilineTextAlignment(.center).font(.subheadline).foregroundStyle(.secondary)
+                    HStack(spacing: 12) {
+                        if cameraAvailable {
+                            Button { showCamera = true } label: {
+                                Label("Take Photo", systemImage: "camera").font(.subheadline.bold())
+                                    .foregroundColor(.white).padding(.horizontal, 16).padding(.vertical, 10)
+                                    .background(Color.blue, in: Capsule())
+                            }
+                        }
+                        PhotosPicker(selection: $selectedItem, matching: .images) {
+                            Label("Choose Photo", systemImage: "photo").font(.subheadline.bold())
+                                .foregroundColor(.white).padding(.horizontal, 16).padding(.vertical, 10)
+                                .background(.ultraThinMaterial, in: Capsule())
+                        }
+                    }
                 }
                 Spacer()
             }
@@ -938,6 +957,13 @@ struct VisualDetectionView: View {
                      : (boxNorm == nil ? "Drag a box around the target object" : "Tap Detect to find it live"))
                     .font(.caption).foregroundColor(.white.opacity(0.85))
                 HStack(spacing: 12) {
+                    if cameraAvailable {
+                        Button { showCamera = true } label: {
+                            Label("Camera", systemImage: "camera").font(.subheadline.bold())
+                                .foregroundColor(.white).padding(.horizontal, 12).padding(.vertical, 8)
+                                .background(.ultraThinMaterial, in: Capsule())
+                        }
+                    }
                     PhotosPicker(selection: $selectedItem, matching: .images) {
                         Label("Photo", systemImage: "photo").font(.subheadline.bold())
                             .foregroundColor(.white).padding(.horizontal, 12).padding(.vertical, 8)
@@ -995,6 +1021,35 @@ struct VisualDetectionView: View {
 
     private func clamp(_ p: CGPoint, _ r: CGRect) -> CGPoint {
         CGPoint(x: min(max(p.x, r.minX), r.maxX), y: min(max(p.y, r.minY), r.maxY))
+    }
+}
+
+// MARK: - Camera Capture (system camera, for a visual-prompt reference photo)
+
+struct CameraPicker: UIViewControllerRepresentable {
+    var onImage: (UIImage) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.delegate = context.coordinator
+        return picker
+    }
+    func updateUIViewController(_ vc: UIImagePickerController, context: Context) {}
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let parent: CameraPicker
+        init(_ parent: CameraPicker) { self.parent = parent }
+        func imagePickerController(_ picker: UIImagePickerController,
+                                   didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            if let img = (info[.editedImage] as? UIImage) ?? (info[.originalImage] as? UIImage) {
+                parent.onImage(img)
+            }
+            parent.dismiss()
+        }
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { parent.dismiss() }
     }
 }
 

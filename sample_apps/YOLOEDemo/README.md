@@ -62,7 +62,7 @@ bundled files (Swift needs no changes: embed=512 is shared across S/M/L).
 - **Camera**: real-time open-vocabulary detection + live instance masks
 - **Photo**: pick from library, detect + colored instance masks, re-threshold without re-running
 - **Video**: pick a video, detect + masks frame-by-frame with overlay
-- **Visual**: pick a reference photo, draw a box on an object, then detect that object by example in the live camera — no text needed
+- **Visual**: capture or pick a reference photo, draw a box on an object, then detect that object by example in the live camera — no text needed
 - **Open-vocabulary**: up to 80 simultaneous queries, any text; switching queries is free
 
 Live masks (camera/video) use the [yolo-ios-app](https://github.com/ultralytics/yolo-ios-app)
