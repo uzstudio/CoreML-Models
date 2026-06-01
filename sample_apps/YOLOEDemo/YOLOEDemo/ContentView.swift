@@ -865,7 +865,7 @@ struct VisualDetectionView: View {
         }
         .onChange(of: selectedItem) { _ in loadRef() }
         .fullScreenCover(isPresented: $showCamera) {
-            CameraPicker { img in refImage = img; dragRect = .zero; boxNorm = nil }
+            CameraPicker { img in refImage = uprightImage(img); dragRect = .zero; boxNorm = nil }
                 .ignoresSafeArea()
         }
     }
@@ -999,17 +999,32 @@ struct VisualDetectionView: View {
         Task {
             if let data = try? await selectedItem.loadTransferable(type: Data.self),
                let ui = UIImage(data: data) {
-                await MainActor.run { refImage = ui }
+                let up = uprightImage(ui)
+                await MainActor.run { refImage = up }
             }
+        }
+    }
+
+    /// Bake any EXIF/camera orientation (camera captures are `.right` = 90° rotated) into the
+    /// pixels and cap the size, so the displayed image, the drawn box, and the encoded image all
+    /// share one upright coordinate system.
+    private func uprightImage(_ image: UIImage, maxDim: CGFloat = 1280) -> UIImage {
+        let size = image.size
+        let s = min(1, maxDim / max(size.width, size.height, 1))
+        let target = CGSize(width: max(1, size.width * s), height: max(1, size.height * s))
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: target, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: target))
         }
     }
 
     private func croppedObject() -> UIImage? {
         guard let refImage, let b = boxNorm, let cg = refImage.cgImage else { return nil }
-        let W = CGFloat(cg.width), H = CGFloat(cg.height)
+        let W = CGFloat(cg.width), H = CGFloat(cg.height)   // refImage is upright -> cg matches display
         let rect = CGRect(x: b.minX * W, y: b.minY * H, width: b.width * W, height: b.height * H)
         guard let cropped = cg.cropping(to: rect.integral) else { return nil }
-        return UIImage(cgImage: cropped, scale: refImage.scale, orientation: refImage.imageOrientation)
+        return UIImage(cgImage: cropped)
     }
 
     private func fittedRect(_ imageSize: CGSize, _ container: CGSize) -> CGRect {
