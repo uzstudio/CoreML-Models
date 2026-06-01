@@ -846,7 +846,7 @@ extension CameraVC: UITextFieldDelegate {
 // MARK: - Visual Prompt Detection (detect "the same object" as a reference region)
 
 struct VisualDetectionView: View {
-    let detector: TextGroundingDetector
+    @ObservedObject var detector: TextGroundingDetector
     @Binding var threshold: Float
 
     @State private var selectedItem: PhotosPickerItem?
@@ -874,25 +874,36 @@ struct VisualDetectionView: View {
     private var liveCamera: some View {
         ZStack(alignment: .top) {
             CameraDetectionView(detector: detector, threshold: $threshold, showsQueryUI: false)
-            HStack(spacing: 10) {
-                if let crop = croppedObject() {
-                    Image(uiImage: crop).resizable().scaledToFill()
-                        .frame(width: 42, height: 42).clipShape(RoundedRectangle(cornerRadius: 8))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(0.6)))
+            VStack(spacing: 8) {
+                HStack(spacing: 10) {
+                    if let crop = croppedObject() {
+                        Image(uiImage: crop).resizable().scaledToFill()
+                            .frame(width: 42, height: 42).clipShape(RoundedRectangle(cornerRadius: 8))
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(0.6)))
+                    }
+                    Text(String(format: "Best match: %.0f%%", detector.lastMaxScore * 100))
+                        .font(.caption.bold()).foregroundColor(.white)
+                    Spacer()
+                    Button { queryActive = false } label: {
+                        Label("Change", systemImage: "arrow.uturn.backward").font(.caption.bold())
+                            .foregroundColor(.white).padding(.horizontal, 10).padding(.vertical, 6)
+                            .background(Color.blue, in: Capsule())
+                    }
                 }
-                Text("Finding similar objects").font(.caption).foregroundColor(.white)
-                Spacer()
-                Button { queryActive = false } label: {
-                    Label("Change", systemImage: "arrow.uturn.backward").font(.caption.bold())
-                        .foregroundColor(.white).padding(.horizontal, 10).padding(.vertical, 6)
-                        .background(Color.blue, in: Capsule())
+                // Visual matches are often weaker than text; let the user drop the threshold.
+                HStack(spacing: 6) {
+                    Image(systemName: "dial.min").font(.caption2).foregroundColor(.white.opacity(0.7))
+                    Slider(value: $threshold, in: 0.02...0.8, step: 0.01)
+                        .onChange(of: threshold) { val in detector.confidenceThreshold = val }
+                    Text(String(format: "%.0f%%", threshold * 100))
+                        .font(.caption2).monospacedDigit().foregroundColor(.white).frame(width: 32)
                 }
             }
             .padding(.horizontal, 14).padding(.vertical, 10)
             .background(.ultraThinMaterial)
             .padding(.top, 50)
         }
-        .onAppear { applyVisualQuery() }   // (re)assert in case another tab changed the query
+        .onAppear { detector.confidenceThreshold = threshold; applyVisualQuery() }
     }
 
     // Pick a reference image and draw a box over the target object.
@@ -1150,6 +1161,7 @@ struct DetectionResult {
 
 class TextGroundingDetector: ObservableObject {
     @Published var isModelLoaded = false
+    @Published var lastMaxScore: Float = 0   // best pre-threshold match (for the Visual tab readout)
 
     let colors: [UIColor] = [
         .systemRed, .systemGreen, .systemBlue, .systemOrange,
@@ -1285,7 +1297,9 @@ class TextGroundingDetector: ObservableObject {
     /// (SAVPE) and cache it as the query — a drop-in for the text path. `box` is in
     /// normalized reference-image coords [0,1], origin top-left. `label` names the result.
     func setVisualQuery(referenceImage: UIImage, box: CGRect, label: String = "Object") {
-        guard let visualEncoder, let cg = normalizedCGImage(referenceImage) else { return }
+        guard let visualEncoder, let cg = normalizedCGImage(referenceImage) else {
+            cachedQueries = []; cachedQueryPrime = []; return
+        }
         cachedQueryString = "\u{1F5BC} " + label   // marker so a later text update still applies
         do {
             let (tensor, imgW, imgH, padX, padY, scale) = try preprocessImage(cg, fresh: true)
@@ -1304,7 +1318,7 @@ class TextGroundingDetector: ObservableObject {
             let (mx1, my1) = toMask(box.maxX, box.maxY)
             let x0 = max(0, min(maskSize - 1, mx0)), x1 = max(0, min(maskSize, mx1))
             let y0 = max(0, min(maskSize - 1, my0)), y1 = max(0, min(maskSize, my1))
-            guard x1 > x0, y1 > y0 else { return }
+            guard x1 > x0, y1 > y0 else { cachedQueries = []; cachedQueryPrime = []; return }
             for y in y0..<y1 { for x in x0..<x1 { mp[y * maskSize + x] = 1.0 } }
 
             let input = try MLDictionaryFeatureProvider(dictionary: [
@@ -1393,6 +1407,12 @@ class TextGroundingDetector: ObservableObject {
                                 0.0, &logits, Int32(numAnchors))
                 }
             }
+
+            // Best match (pre-threshold) — surfaced for the Visual tab so a weak match is visible.
+            var maxLogit: Float = -.greatestFiniteMagnitude
+            vDSP_maxv(logits, 1, &maxLogit, vDSP_Length(logits.count))
+            let best = 1.0 / (1.0 + exp(-maxLogit))
+            DispatchQueue.main.async { if abs(self.lastMaxScore - best) > 0.005 { self.lastMaxScore = best } }
 
             // Threshold on the logit so sigmoid is only evaluated for survivors.
             let t = confidenceThreshold
