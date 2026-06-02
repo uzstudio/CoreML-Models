@@ -122,6 +122,7 @@ struct PhotoDetectionView: View {
     @State private var isProcessing = false
     @State private var inferenceTime: Double = 0
     @State private var queryText = "person, dog, car"
+    @State private var maxDet = 50   // shared detection cap (applies to all modes via the detector)
 
     private var filteredDetections: [Detection] {
         allDetections.filter { $0.confidence >= threshold }
@@ -170,6 +171,19 @@ struct PhotoDetectionView: View {
                                 detector.confidenceThreshold = val
                                 updateOverlay()
                             }
+                        Menu {
+                            Picker("Max detections", selection: $maxDet) {
+                                ForEach([25, 50, 75, 100], id: \.self) { Text("\($0)").tag($0) }
+                            }
+                        } label: {
+                            Text("≤\(maxDet)").font(.caption).monospacedDigit().foregroundColor(.white)
+                                .padding(.horizontal, 7).padding(.vertical, 3)
+                                .background(.ultraThinMaterial, in: Capsule())
+                        }
+                        .onChange(of: maxDet) { val in
+                            detector.maxDetections = val
+                            if image != nil { runDetection() }
+                        }
                     }
                     HStack {
                         if !filteredDetections.isEmpty {
@@ -807,7 +821,7 @@ class CameraVC: UIViewController, AVCaptureVideoDataOutputSampleBufferDelegate {
         let ratio = (height / width) / (longSide / shortSide)
 
         for i in 0..<boxViews.count {
-            guard i < dets.count && i < 50 else { boxViews[i].hide(); continue }
+            guard i < dets.count else { boxViews[i].hide(); continue }   // dets already capped at maxDetections (<=100 = pool size)
             let (label, conf, cid, nr) = dets[i]
             var displayRect = nr
 
@@ -1183,6 +1197,7 @@ class TextGroundingDetector: ObservableObject {
     private let inputSize = 640
     private let maskSize = 80                     // SAVPE prompt-mask resolution (640 / 8)
     var confidenceThreshold: Float = 0.15
+    var maxDetections: Int = 50          // cap on returned detections (1...100), user-settable
     private let nmsThreshold: Float = 0.5
     private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
 
@@ -1455,7 +1470,7 @@ class TextGroundingDetector: ObservableObject {
                 if !suppress { kept.append(i) }
             }
 
-            let detections = kept.prefix(50).map { i in
+            let detections = kept.prefix(max(1, min(100, maxDetections))).map { i in
                 Detection(label: queries[allDets[i].2],
                           confidence: allDets[i].1,
                           classIndex: allDets[i].2,

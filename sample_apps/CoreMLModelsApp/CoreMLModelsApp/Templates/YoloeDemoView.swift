@@ -26,6 +26,7 @@ struct YoloeDemoView: View {
     @State private var item: PhotosPickerItem?
     @State private var confidenceThreshold: Float = 0.15
     @State private var showMasks = true
+    @State private var maxDet = 50   // cap on returned detections (1...100)
     @StateObject private var session = ModelSession<(detector: MLModel, reprta: MLModel, textEnc: MLModel)>()
 
     struct Det: Identifiable {
@@ -90,6 +91,15 @@ struct YoloeDemoView: View {
                     Slider(value: $confidenceThreshold, in: 0.05...0.9)
                     Text(String(format: "%.0f%%", confidenceThreshold * 100))
                         .font(.caption2.monospacedDigit()).foregroundStyle(.secondary).frame(width: 36)
+                    Menu {
+                        Picker("Max detections", selection: $maxDet) {
+                            ForEach([25, 50, 75, 100], id: \.self) { Text("\($0)").tag($0) }
+                        }
+                    } label: {
+                        Text("≤\(maxDet)").font(.caption2.monospacedDigit())
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(.ultraThinMaterial, in: Capsule())
+                    }
                     Toggle("Masks", isOn: $showMasks).labelsHidden()
                     Image(systemName: "theatermasks").font(.caption2).foregroundStyle(.secondary)
                 }
@@ -227,7 +237,7 @@ struct YoloeDemoView: View {
                 }
                 if !suppress { kept.append(i) }
             }
-            let dets = kept.prefix(40).map { i in
+            let dets = kept.prefix(max(1, min(100, maxDet))).map { i in
                 Det(label: classes[all[i].2], confidence: all[i].1, box: all[i].0, anchor: all[i].3, classIndex: all[i].2)
             }
 
