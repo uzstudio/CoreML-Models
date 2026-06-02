@@ -18,6 +18,8 @@ struct DemoLauncherView: View {
                 ImageDetectionDemoView(model: model)
             case "open_vocab_detection":
                 OpenVocabDetectionDemoView(model: model)
+            case "yoloe":
+                YoloeDemoView(model: model)
             case "zero_shot_classify":
                 ZeroShotClassifyDemoView(model: model)
             case "face_compare":
