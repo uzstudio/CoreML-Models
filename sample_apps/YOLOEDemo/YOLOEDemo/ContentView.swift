@@ -26,7 +26,7 @@ struct ContentView: View {
                 CameraDetectionView(detector: detector, threshold: $threshold)
                     .tabItem { Label("Camera", systemImage: "camera") }
                     .tag(2)
-                VisualDetectionView(detector: detector, threshold: $threshold)
+                VisualDetectionView(detector: detector)
                     .tabItem { Label("Visual", systemImage: "viewfinder") }
                     .tag(3)
             }
@@ -847,7 +847,9 @@ extension CameraVC: UITextFieldDelegate {
 
 struct VisualDetectionView: View {
     @ObservedObject var detector: TextGroundingDetector
-    @Binding var threshold: Float
+    // Visual matches run weaker than text, so the Visual tab keeps its own lower default
+    // threshold (the slider still adjusts it) rather than sharing the text tabs' 0.15.
+    @State private var threshold: Float = 0.1
 
     @State private var selectedItem: PhotosPickerItem?
     @State private var refImage: UIImage?
