@@ -62,7 +62,7 @@ bundled files (Swift needs no changes: embed=512 is shared across S/M/L).
 - **Camera**: real-time open-vocabulary detection + live instance masks
 - **Photo**: pick from library, detect + colored instance masks, re-threshold without re-running
 - **Video**: pick a video, detect + masks frame-by-frame with overlay
-- **Visual**: capture or pick a reference photo, draw a box on an object, then detect that object by example in the live camera — no text needed
+- **Visual**: capture or pick a reference photo, **tap an object** (auto-segmented) — or drag a box — then detect that object by example in the live camera; no text needed
 - **Open-vocabulary**: up to 80 simultaneous queries, any text; switching queries is free
 
 Live masks (camera/video) use the [yolo-ios-app](https://github.com/ultralytics/yolo-ios-app)
@@ -70,11 +70,13 @@ fast path: one BLAS matmul `coeffs[N,32] x protos[32,160²]` builds every instan
 proto resolution, composited into a single small RGBA image that Core Animation scales onto
 a `maskLayer` — no per-pixel CGContext draw, no SwiftUI churn per frame.
 
-**Visual prompts** (the Visual tab) use YOLOE's SAVPE module: the boxed reference region is
-encoded into a 512-d embedding that lives in the *same* space as the text query, so
-`setVisualQuery` just caches `[vpe, 1.0]` and the per-frame detection path is unchanged. The
-box becomes an 80×80 mask (640 input, stride 8); SAVPE softmax-pools the masked features and
-returns an already-normalized embedding. An **L** encoder is in the release too.
+**Visual prompts** (the Visual tab) use YOLOE's SAVPE module: the reference region is encoded
+into a 512-d embedding in the *same* space as the text query, so `encodeVisualMask` just caches
+`[vpe, 1.0]` and the per-frame detection path is unchanged. SAVPE takes an **80×80 mask** (640
+input, stride 8) — not just a box — so a **tap** runs YOLOE's own segmentation on the reference
+(`maskFromTap`: the instance whose mask is strongest at the tapped point) and feeds that
+object-shaped mask straight to SAVPE; a tighter mask than a box gives a cleaner embedding (no
+background). Dragging a box still works as a fallback. An **L** encoder is in the release too.
 
 ## Requirements
 

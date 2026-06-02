@@ -702,6 +702,15 @@ when testing: a prompt box that lands on background (e.g. the bus) yields ~0 sco
 that's correct model behaviour, not a bug; box an actual object.
 
 Reference: `convert_models.py::VisualPromptEncoder` / `convert_visual_encoder`,
-and `YOLOEDemo/ContentView.swift::setVisualQuery` (mask build) + the Visual tab.
+and `YOLOEDemo/ContentView.swift::encodeVisualMask` (mask build) + the Visual tab.
+
+**Tap-to-segment, no SAM needed.** SAVPE's `mask` input is a real spatial mask (a box is just a
+rectangular one), so you don't need MobileSAM/FastSAM to turn a *tap* into a tight prompt — reuse
+the detector's *own* segmentation. Run the text-free detector on the reference, and for the tapped
+point pick the instance whose mask logit is strongest there: among anchors whose decoded box
+contains the tap, `argmax_a Σ_k coeffs[k,a]·protos[k, tap_pixel]`; that anchor's full mask
+(`sigmoid(coeffs·protos)`), downsampled 160→80, is the prompt. Reject blobs covering >70% of the
+frame (background). An object-shaped mask beats a box (no background in the pooled region → cleaner
+VPE, higher match). See `ContentView.swift::maskFromTap`.
 
 ---

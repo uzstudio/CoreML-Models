@@ -867,8 +867,10 @@ struct VisualDetectionView: View {
 
     @State private var selectedItem: PhotosPickerItem?
     @State private var refImage: UIImage?
-    @State private var dragRect: CGRect = .zero    // live drag, container coords
-    @State private var boxNorm: CGRect?            // normalized box on the reference image
+    @State private var dragRect: CGRect = .zero        // live drag, container coords
+    @State private var activeMask80: [Float]?          // selected reference mask (tap or box)
+    @State private var selectionOverlay: CGImage?      // de-letterboxed mask overlay for feedback
+    @State private var isSelecting = false
     @State private var queryActive = false
     @State private var showCamera = false
 
@@ -881,7 +883,7 @@ struct VisualDetectionView: View {
         }
         .onChange(of: selectedItem) { _ in loadRef() }
         .fullScreenCover(isPresented: $showCamera) {
-            CameraPicker { img in refImage = uprightImage(img); dragRect = .zero; boxNorm = nil }
+            CameraPicker { img in refImage = uprightImage(img); clearSelection() }
                 .ignoresSafeArea()
         }
     }
@@ -892,11 +894,6 @@ struct VisualDetectionView: View {
             CameraDetectionView(detector: detector, threshold: $threshold, showsQueryUI: false)
             VStack(spacing: 8) {
                 HStack(spacing: 10) {
-                    if let crop = croppedObject() {
-                        Image(uiImage: crop).resizable().scaledToFill()
-                            .frame(width: 42, height: 42).clipShape(RoundedRectangle(cornerRadius: 8))
-                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(0.6)))
-                    }
                     Text(String(format: "Best match: %.0f%%", detector.lastMaxScore * 100))
                         .font(.caption.bold()).foregroundColor(.white)
                     Spacer()
@@ -922,7 +919,7 @@ struct VisualDetectionView: View {
         .onAppear { detector.confidenceThreshold = threshold; applyVisualQuery() }
     }
 
-    // Pick a reference image and draw a box over the target object.
+    // Pick a reference image; tap an object (auto-segment) or drag a box.
     private var selection: some View {
         VStack(spacing: 0) {
             if let refImage {
@@ -931,35 +928,52 @@ struct VisualDetectionView: View {
                     ZStack(alignment: .topLeading) {
                         Image(uiImage: refImage).resizable().scaledToFit()
                             .frame(width: geo.size.width, height: geo.size.height)
+                        if let ov = selectionOverlay {
+                            Image(decorative: ov, scale: 1).resizable().interpolation(.none).scaledToFit()
+                                .frame(width: geo.size.width, height: geo.size.height)
+                                .opacity(0.55).allowsHitTesting(false)
+                        }
                         if dragRect.width > 1 {
                             Rectangle().fill(Color.yellow.opacity(0.18))
                                 .frame(width: dragRect.width, height: dragRect.height)
                                 .overlay(Rectangle().stroke(Color.yellow, lineWidth: 3))
                                 .position(x: dragRect.midX, y: dragRect.midY)
                         }
+                        if isSelecting { ProgressView().tint(.white).position(x: geo.size.width / 2, y: geo.size.height / 2) }
                     }
                     .contentShape(Rectangle())
                     .gesture(
-                        DragGesture(minimumDistance: 4)
+                        DragGesture(minimumDistance: 0)
                             .onChanged { v in
-                                let a = clamp(v.startLocation, fit), b = clamp(v.location, fit)
-                                dragRect = CGRect(x: min(a.x, b.x), y: min(a.y, b.y),
-                                                  width: abs(a.x - b.x), height: abs(a.y - b.y))
+                                if dist(v.startLocation, v.location) > 8 {
+                                    let a = clamp(v.startLocation, fit), b = clamp(v.location, fit)
+                                    dragRect = CGRect(x: min(a.x, b.x), y: min(a.y, b.y),
+                                                      width: abs(a.x - b.x), height: abs(a.y - b.y))
+                                }
                             }
-                            .onEnded { _ in
-                                guard dragRect.width > 8, dragRect.height > 8 else { return }
-                                boxNorm = CGRect(x: (dragRect.minX - fit.minX) / fit.width,
-                                                 y: (dragRect.minY - fit.minY) / fit.height,
-                                                 width: dragRect.width / fit.width,
-                                                 height: dragRect.height / fit.height)
+                            .onEnded { v in
+                                let drag = dist(v.startLocation, v.location)
+                                if drag <= 8 {                              // tap → segment the object
+                                    let p = clamp(v.startLocation, fit)
+                                    dragRect = .zero
+                                    selectByTap(CGPoint(x: (p.x - fit.minX) / fit.width,
+                                                        y: (p.y - fit.minY) / fit.height))
+                                } else if dragRect.width > 8, dragRect.height > 8 {   // drag → box
+                                    let bn = CGRect(x: (dragRect.minX - fit.minX) / fit.width,
+                                                    y: (dragRect.minY - fit.minY) / fit.height,
+                                                    width: dragRect.width / fit.width,
+                                                    height: dragRect.height / fit.height)
+                                    dragRect = .zero
+                                    selectByBox(bn)
+                                }
                             }
                     )
                 }
             } else {
                 Spacer()
                 VStack(spacing: 16) {
-                    Image(systemName: "viewfinder").font(.system(size: 48)).foregroundStyle(.secondary)
-                    Text("Capture or pick a reference photo,\nthen draw a box on the object")
+                    Image(systemName: "hand.tap").font(.system(size: 48)).foregroundStyle(.secondary)
+                    Text("Capture or pick a reference photo,\nthen tap an object to detect it")
                         .multilineTextAlignment(.center).font(.subheadline).foregroundStyle(.secondary)
                     HStack(spacing: 12) {
                         if cameraAvailable {
@@ -981,7 +995,8 @@ struct VisualDetectionView: View {
 
             VStack(spacing: 8) {
                 Text(refImage == nil ? "Detect any object by example — no text needed"
-                     : (boxNorm == nil ? "Drag a box around the target object" : "Tap Detect to find it live"))
+                     : isSelecting ? "Segmenting…"
+                     : (activeMask80 == nil ? "Tap an object — or drag a box around it" : "Selected — tap Detect to find it live"))
                     .font(.caption).foregroundColor(.white.opacity(0.85))
                 HStack(spacing: 12) {
                     if cameraAvailable {
@@ -1000,8 +1015,8 @@ struct VisualDetectionView: View {
                     Button { startDetection() } label: {
                         Label("Detect", systemImage: "viewfinder").font(.subheadline.bold())
                             .foregroundColor(.white).padding(.horizontal, 16).padding(.vertical, 8)
-                            .background(boxNorm == nil ? Color.gray : Color.blue, in: Capsule())
-                    }.disabled(boxNorm == nil)
+                            .background(activeMask80 == nil ? Color.gray : Color.blue, in: Capsule())
+                    }.disabled(activeMask80 == nil)
                 }
             }
             .padding(.horizontal, 16).padding(.vertical, 12)
@@ -1009,20 +1024,43 @@ struct VisualDetectionView: View {
         }
     }
 
+    private func selectByTap(_ tapNorm: CGPoint) {
+        guard let img = refImage, !isSelecting else { return }
+        isSelecting = true
+        Task {
+            let m = detector.maskFromTap(referenceImage: img, tapNorm: tapNorm)
+            let ov = m.flatMap { detector.renderMask80($0, referenceImage: img) }
+            await MainActor.run {
+                isSelecting = false
+                if let m { activeMask80 = m; selectionOverlay = ov }   // keep prior selection on a miss
+            }
+        }
+    }
+
+    private func selectByBox(_ boxNorm: CGRect) {
+        guard let img = refImage, let m = detector.boxMask80(referenceImage: img, box: boxNorm) else { return }
+        activeMask80 = m
+        selectionOverlay = detector.renderMask80(m, referenceImage: img)
+    }
+
     private func startDetection() {
-        guard boxNorm != nil else { return }
+        guard activeMask80 != nil else { return }
         applyVisualQuery()
         queryActive = true
     }
 
     private func applyVisualQuery() {
-        guard let refImage, let box = boxNorm else { return }
-        detector.setVisualQuery(referenceImage: refImage, box: box)
+        guard let refImage, let mask80 = activeMask80 else { return }
+        detector.encodeVisualMask(referenceImage: refImage, mask80: mask80)
+    }
+
+    private func clearSelection() {
+        dragRect = .zero; activeMask80 = nil; selectionOverlay = nil
     }
 
     private func loadRef() {
         guard let selectedItem else { return }
-        dragRect = .zero; boxNorm = nil
+        clearSelection()
         Task {
             if let data = try? await selectedItem.loadTransferable(type: Data.self),
                let ui = UIImage(data: data) {
@@ -1031,6 +1069,8 @@ struct VisualDetectionView: View {
             }
         }
     }
+
+    private func dist(_ a: CGPoint, _ b: CGPoint) -> CGFloat { hypot(a.x - b.x, a.y - b.y) }
 
     /// Bake any EXIF/camera orientation (camera captures are `.right` = 90° rotated) into the
     /// pixels and cap the size, so the displayed image, the drawn box, and the encoded image all
@@ -1044,14 +1084,6 @@ struct VisualDetectionView: View {
         return UIGraphicsImageRenderer(size: target, format: format).image { _ in
             image.draw(in: CGRect(origin: .zero, size: target))
         }
-    }
-
-    private func croppedObject() -> UIImage? {
-        guard let refImage, let b = boxNorm, let cg = refImage.cgImage else { return nil }
-        let W = CGFloat(cg.width), H = CGFloat(cg.height)   // refImage is upright -> cg matches display
-        let rect = CGRect(x: b.minX * W, y: b.minY * H, width: b.width * W, height: b.height * H)
-        guard let cropped = cg.cropping(to: rect.integral) else { return nil }
-        return UIImage(cgImage: cropped)
     }
 
     private func fittedRect(_ imageSize: CGSize, _ container: CGSize) -> CGRect {
@@ -1310,43 +1342,33 @@ class TextGroundingDetector: ObservableObject {
 
     // MARK: - Visual query (detect "the same object" as a reference region)
 
-    /// Encode a boxed object from a reference image into a visual prompt embedding
-    /// (SAVPE) and cache it as the query — a drop-in for the text path. `box` is in
-    /// normalized reference-image coords [0,1], origin top-left. `label` names the result.
-    func setVisualQuery(referenceImage: UIImage, box: CGRect, label: String = "Object") {
-        guard let visualEncoder, let cg = normalizedCGImage(referenceImage) else {
+    /// Encode an 80x80 reference mask (640-letterbox space) into the cached visual prompt
+    /// embedding via SAVPE — a drop-in for the text query. The mask can be a box rasterization
+    /// or an object-shaped mask (tap-to-segment); SAVPE just pools features over the masked
+    /// region, so a tighter mask gives a cleaner embedding.
+    func encodeVisualMask(referenceImage: UIImage, mask80: [Float], label: String = "Object") {
+        guard let visualEncoder, mask80.count == maskSize * maskSize,
+              let cg = normalizedCGImage(referenceImage) else {
             cachedQueries = []; cachedQueryPrime = []; return
         }
         cachedQueryString = "\u{1F5BC} " + label   // marker so a later text update still applies
         do {
-            let (tensor, imgW, imgH, padX, padY, scale) = try preprocessImage(cg, fresh: true)
-
-            // box (normalized) -> 640 letterbox -> /8 -> binary 80x80 mask.
+            let (tensor, _, _, _, _, _) = try preprocessImage(cg, fresh: true)
             let mask = try MLMultiArray(shape: [1, 1, maskSize as NSNumber, maskSize as NSNumber], dataType: .float32)
             let mp = mask.dataPointer.bindMemory(to: Float32.self, capacity: maskSize * maskSize)
-            memset(mp, 0, maskSize * maskSize * 4)
-            let s8 = Float(maskSize) / Float(inputSize)   // 80 / 640
-            func toMask(_ nx: CGFloat, _ ny: CGFloat) -> (Int, Int) {
-                let x = (Float(nx) * Float(imgW) * scale + padX) * s8
-                let y = (Float(ny) * Float(imgH) * scale + padY) * s8
-                return (Int(x.rounded()), Int(y.rounded()))
-            }
-            let (mx0, my0) = toMask(box.minX, box.minY)
-            let (mx1, my1) = toMask(box.maxX, box.maxY)
-            let x0 = max(0, min(maskSize - 1, mx0)), x1 = max(0, min(maskSize, mx1))
-            let y0 = max(0, min(maskSize - 1, my0)), y1 = max(0, min(maskSize, my1))
-            guard x1 > x0, y1 > y0 else { cachedQueries = []; cachedQueryPrime = []; return }
-            for y in y0..<y1 { for x in x0..<x1 { mp[y * maskSize + x] = 1.0 } }
+            var any = false
+            for i in 0..<(maskSize * maskSize) { mp[i] = mask80[i]; if mask80[i] > 0 { any = true } }
+            guard any else { cachedQueries = []; cachedQueryPrime = []; return }
 
             let input = try MLDictionaryFeatureProvider(dictionary: [
                 "image": MLFeatureValue(multiArray: tensor),
                 "mask": MLFeatureValue(multiArray: mask),
             ])
             let out = try visualEncoder.prediction(from: input)
-            guard let vpeMA = out.featureValue(for: "vpe")?.multiArrayValue else { return }
+            guard let vpeMA = out.featureValue(for: "vpe")?.multiArrayValue else {
+                cachedQueries = []; cachedQueryPrime = []; return
+            }
             let vpe = readFloat(vpeMA)   // [1,1,512], already L2-normalized by SAVPE
-
-            // query' = [vpe, 1.0] -> [1, 513]
             var q = [Float](repeating: 0, count: augDim)
             for c in 0..<embedDim { q[c] = vpe[c] }
             q[embedDim] = 1.0
@@ -1355,6 +1377,105 @@ class TextGroundingDetector: ObservableObject {
         } catch {
             cachedQueries = []; cachedQueryPrime = []
         }
+    }
+
+    /// Rasterize a box (normalized reference coords) into an 80x80 mask (640-letterbox space).
+    func boxMask80(referenceImage: UIImage, box: CGRect) -> [Float]? {
+        guard let cg = normalizedCGImage(referenceImage) else { return nil }
+        let imgW = cg.width, imgH = cg.height
+        let scale = Float(inputSize) / Float(max(imgW, imgH))
+        let padX = (Float(inputSize) - Float(imgW) * scale) / 2
+        let padY = (Float(inputSize) - Float(imgH) * scale) / 2
+        let s8 = Float(maskSize) / Float(inputSize)
+        func toMask(_ nx: CGFloat, _ ny: CGFloat) -> (Int, Int) {
+            (Int(((Float(nx) * Float(imgW) * scale + padX) * s8).rounded()),
+             Int(((Float(ny) * Float(imgH) * scale + padY) * s8).rounded()))
+        }
+        let (mx0, my0) = toMask(box.minX, box.minY), (mx1, my1) = toMask(box.maxX, box.maxY)
+        let x0 = max(0, min(maskSize - 1, mx0)), x1 = max(0, min(maskSize, mx1))
+        let y0 = max(0, min(maskSize - 1, my0)), y1 = max(0, min(maskSize, my1))
+        guard x1 > x0, y1 > y0 else { return nil }
+        var m = [Float](repeating: 0, count: maskSize * maskSize)
+        for y in y0..<y1 { for x in x0..<x1 { m[y * maskSize + x] = 1 } }
+        return m
+    }
+
+    /// Tap → object mask via YOLOE's own segmentation. Runs the detector on the reference,
+    /// finds the instance whose mask is strongest at the tapped point, and returns its 80x80
+    /// mask (640-letterbox space). nil if nothing convincing is under the tap. `tapNorm` is
+    /// normalized reference-image coords [0,1].
+    func maskFromTap(referenceImage: UIImage, tapNorm: CGPoint) -> [Float]? {
+        guard let visualModel, let cg = normalizedCGImage(referenceImage) else { return nil }
+        do {
+            let (tensor, imgW, imgH, padX, padY, scale) = try preprocessImage(cg, fresh: true)
+            let out = try visualModel.prediction(from: try MLDictionaryFeatureProvider(
+                dictionary: ["image": MLFeatureValue(multiArray: tensor)]))
+            guard let boxesMA = out.featureValue(for: "boxes")?.multiArrayValue,
+                  let coeffsMA = out.featureValue(for: "mask_coeffs")?.multiArrayValue,
+                  let protosMA = out.featureValue(for: "mask_protos")?.multiArrayValue else { return nil }
+            let boxes = readMatrix2D(boxesMA)     // [4, 8400]
+            let coeffs = readMatrix2D(coeffsMA)   // [32, 8400]
+            let protos = readProtos(protosMA)     // [32, 25600]
+            let nmc = 32, proto = 160, phw = proto * proto
+
+            let tx = Float(tapNorm.x) * Float(imgW) * scale + padX
+            let ty = Float(tapNorm.y) * Float(imgH) * scale + padY
+            let pIdx = max(0, min(proto - 1, Int(ty / 4))) * proto + max(0, min(proto - 1, Int(tx / 4)))
+
+            // Anchors whose decoded box contains the tap → pick the strongest mask logit at the tap.
+            var bestA = -1, bestM: Float = 0
+            for a in 0..<numAnchors {
+                let cx = boxes[a], cy = boxes[numAnchors + a]
+                let bw = boxes[2 * numAnchors + a], bh = boxes[3 * numAnchors + a]
+                if tx < cx - bw / 2 || tx > cx + bw / 2 || ty < cy - bh / 2 || ty > cy + bh / 2 { continue }
+                var m: Float = 0
+                for k in 0..<nmc { m += coeffs[k * numAnchors + a] * protos[k * phw + pIdx] }
+                if m > bestM { bestM = m; bestA = a }
+            }
+            guard bestA >= 0 else { return nil }
+
+            var m160 = [Float](repeating: 0, count: phw)
+            for k in 0..<nmc {
+                let c = coeffs[k * numAnchors + bestA], base = k * phw
+                for p in 0..<phw { m160[p] += c * protos[base + p] }
+            }
+            var on = 0
+            for p in 0..<phw where m160[p] > 0 { on += 1 }
+            guard on > 4, Float(on) < 0.7 * Float(phw) else { return nil }   // reject background-ish blobs
+
+            var m80 = [Float](repeating: 0, count: maskSize * maskSize)
+            for y in 0..<maskSize { for x in 0..<maskSize {
+                m80[y * maskSize + x] = m160[(2 * y) * proto + (2 * x)] > 0 ? 1 : 0
+            } }
+            return m80
+        } catch { return nil }
+    }
+
+    /// Render an 80x80 reference mask as a translucent overlay CGImage de-letterboxed to the
+    /// original-image aspect (for selection feedback on the reference photo).
+    func renderMask80(_ mask80: [Float], referenceImage: UIImage, color: UIColor = .systemGreen) -> CGImage? {
+        guard mask80.count == maskSize * maskSize, let cg = normalizedCGImage(referenceImage) else { return nil }
+        let imgW = cg.width, imgH = cg.height
+        let scale = Float(inputSize) / Float(max(imgW, imgH))
+        let s8 = Float(maskSize) / Float(inputSize)
+        let padX = Int(((Float(inputSize) - Float(imgW) * scale) / 2 * s8).rounded())
+        let padY = Int(((Float(inputSize) - Float(imgH) * scale) / 2 * s8).rounded())
+        var cr: CGFloat = 0, cg2: CGFloat = 0, cb: CGFloat = 0, ca: CGFloat = 0
+        color.getRed(&cr, green: &cg2, blue: &cb, alpha: &ca)
+        var px = [UInt8](repeating: 0, count: maskSize * maskSize * 4)
+        for i in 0..<(maskSize * maskSize) where mask80[i] > 0 {
+            let o = i * 4
+            px[o] = UInt8(cr * 255); px[o + 1] = UInt8(cg2 * 255); px[o + 2] = UInt8(cb * 255); px[o + 3] = 255
+        }
+        let cs = CGColorSpaceCreateDeviceRGB()
+        let info = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+        guard let provider = CGDataProvider(data: Data(px) as CFData),
+              let full = CGImage(width: maskSize, height: maskSize, bitsPerComponent: 8, bitsPerPixel: 32,
+                                 bytesPerRow: maskSize * 4, space: cs, bitmapInfo: info, provider: provider,
+                                 decode: nil, shouldInterpolate: false, intent: .defaultIntent) else { return nil }
+        let cw = Int((Float(imgW) * scale * s8).rounded()), ch = Int((Float(imgH) * scale * s8).rounded())
+        let crop = CGRect(x: padX, y: padY, width: max(1, min(cw, maskSize - padX)), height: max(1, min(ch, maskSize - padY)))
+        return full.cropping(to: crop) ?? full
     }
 
     // MARK: - Sync Detection (camera / video -- boxes + combined mask overlay)
