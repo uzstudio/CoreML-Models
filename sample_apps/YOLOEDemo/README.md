@@ -47,6 +47,9 @@ and through the FP16 CoreML model the top detection's anchor/class match exactly
 | `reprta.mlpackage` | ~6 MB (FP32) | YOLOE RepRTA text-refinement MLP (`raw_tpe → tpe`) |
 | `mobileclip_blt_text.mlpackage` | ~121 MB | Apple MobileCLIP B-LT text encoder (`text → final_emb_1`) |
 | `visual_prompt_encoder.mlpackage` | ~20 MB (FP16) | YOLOE SAVPE (`image + mask[80²] → vpe`) for visual prompts |
+| `mobile_sam_encoder.mlpackage` | ~38 MB (FP16) | MobileSAM image encoder (`image → image_embeddings`) for tap-to-segment |
+| `mobile_sam_decoder.mlpackage` | ~8 MB (FP16) | MobileSAM mask decoder (`embeddings + prompts → masks`), runs `.cpuAndGPU` |
+| `mobile_sam_prompt_encoder_weights.json` | 38 KB | MobileSAM prompt-encoder weights for the Swift `PromptEncoder` |
 | `clip_vocab.json` | 1.6 MB | CLIP BPE vocabulary for the Swift tokenizer |
 
 `mobileclip_blt_text.mlpackage` is Apple's official Core ML export from
@@ -73,10 +76,12 @@ a `maskLayer` — no per-pixel CGContext draw, no SwiftUI churn per frame.
 **Visual prompts** (the Visual tab) use YOLOE's SAVPE module: the reference region is encoded
 into a 512-d embedding in the *same* space as the text query, so `encodeVisualMask` just caches
 `[vpe, 1.0]` and the per-frame detection path is unchanged. SAVPE takes an **80×80 mask** (640
-input, stride 8) — not just a box — so a **tap** runs YOLOE's own segmentation on the reference
-(`maskFromTap`: the instance whose mask is strongest at the tapped point) and feeds that
-object-shaped mask straight to SAVPE; a tighter mask than a box gives a cleaner embedding (no
-background). Dragging a box still works as a fallback. An **L** encoder is in the release too.
+input, stride 8) — not just a box — so a **tap** segments the object on the reference and feeds
+that object-shaped mask straight to SAVPE; a tighter mask than a box gives a cleaner embedding
+(no background). The tap is segmented by **MobileSAM** (a point prompt at the tapped pixel —
+crisp and class-agnostic); if MobileSAM is unavailable it falls back to YOLOE's own seg head
+(`maskFromTap`: the instance whose mask is strongest at the tapped point). Dragging a box still
+works as a fallback. An **L** encoder is in the release too.
 
 ## Requirements
 

@@ -713,4 +713,12 @@ contains the tap, `argmax_a Σ_k coeffs[k,a]·protos[k, tap_pixel]`; that anchor
 frame (background). An object-shaped mask beats a box (no background in the pooled region → cleaner
 VPE, higher match). See `ContentView.swift::maskFromTap`.
 
+In practice we still **default the tap to MobileSAM** (`maskFromTapSAM` → `maskFromTap` fallback):
+SAM's point prompt gives a crisper, fully class-agnostic mask, which matters when the reference
+object is something the YOLOE-seg head segments poorly. The two are interchangeable at the SAVPE
+boundary — both just produce an 80×80 mask — so the fallback is free. MobileSAM ships as the SamKit
+encoder/decoder split (decoder pinned `.cpuAndGPU`: its `conv_transpose` won't compile on ANE) plus
+a Swift `PromptEncoder` driven by a 38 KB weights JSON; the heavy ViT encoder runs once per
+reference image (cache the embedding), not per tap.
+
 ---

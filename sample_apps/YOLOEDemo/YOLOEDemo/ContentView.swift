@@ -1028,7 +1028,9 @@ struct VisualDetectionView: View {
         guard let img = refImage, !isSelecting else { return }
         isSelecting = true
         Task {
-            let m = detector.maskFromTap(referenceImage: img, tapNorm: tapNorm)
+            // MobileSAM point-prompt (crisp, general); fall back to YOLOE's own seg if SAM is unavailable.
+            let m = detector.maskFromTapSAM(referenceImage: img, tapNorm: tapNorm)
+                ?? detector.maskFromTap(referenceImage: img, tapNorm: tapNorm)
             let ov = m.flatMap { detector.renderMask80($0, referenceImage: img) }
             await MainActor.run {
                 isSelecting = false
@@ -1476,6 +1478,71 @@ class TextGroundingDetector: ObservableObject {
         let cw = Int((Float(imgW) * scale * s8).rounded()), ch = Int((Float(imgH) * scale * s8).rounded())
         let crop = CGRect(x: padX, y: padY, width: max(1, min(cw, maskSize - padX)), height: max(1, min(ch, maskSize - padY)))
         return full.cropping(to: crop) ?? full
+    }
+
+    // MARK: - MobileSAM tap-to-segment (crisper than the YOLOE-seg heuristic)
+
+    private var samSession: SamSession?
+    private var samTried = false
+
+    private func ensureSAM() -> SamSession? {
+        if let samSession { return samSession }
+        if samTried { return nil }
+        samTried = true
+        guard let encURL = Bundle.main.url(forResource: "mobile_sam_encoder", withExtension: "mlmodelc"),
+              let decURL = Bundle.main.url(forResource: "mobile_sam_decoder", withExtension: "mlmodelc"),
+              let wURL = Bundle.main.url(forResource: "mobile_sam_prompt_encoder_weights", withExtension: "json") else {
+            return nil
+        }
+        do {
+            let encCfg = MLModelConfiguration(); encCfg.computeUnits = .all
+            // MobileSAM decoder's conv_transpose can't compile on ANE; pin to CPU+GPU.
+            let decCfg = MLModelConfiguration(); decCfg.computeUnits = .cpuAndGPU
+            let enc = try MLModel(contentsOf: encURL, configuration: encCfg)
+            let dec = try MLModel(contentsOf: decURL, configuration: decCfg)
+            samSession = try SamSession(encoder: enc, decoder: dec, modelSize: 1024,
+                                        modelType: .mobileSam, promptEncoderWeightsURL: wURL)
+            return samSession
+        } catch { return nil }
+    }
+
+    /// Tap → object mask via MobileSAM (point prompt). Crisper / more general than the
+    /// YOLOE-seg heuristic. Returns an 80x80 mask (640-letterbox space) for SAVPE, or nil.
+    func maskFromTapSAM(referenceImage: UIImage, tapNorm: CGPoint) -> [Float]? {
+        guard let sam = ensureSAM(), let cg = normalizedCGImage(referenceImage) else { return nil }
+        do {
+            try sam.setImage(cg)   // runs the ViT encoder once (heavy); embedding cached
+            let pt = SamPoint(x: tapNorm.x * CGFloat(cg.width), y: tapNorm.y * CGFloat(cg.height), label: .positive)
+            let res = try sam.predict(points: [pt],
+                                      options: SamOptions(multimaskOutput: true, maskThreshold: 0.0, maxMasks: 3))
+            guard let best = res.masks.max(by: { $0.score < $1.score }) else { return nil }
+            return samMaskToMask80(best)
+        } catch { return nil }
+    }
+
+    /// Letterbox a SAM mask (its cgImage covers the image content, aspect preserved) into the
+    /// 80x80 SAVPE grid, mirroring preprocessImage's render path so orientation stays consistent.
+    private func samMaskToMask80(_ m: SamMask) -> [Float]? {
+        let cgm = m.cgImage
+        let mw = cgm.width, mh = cgm.height
+        guard mw > 0, mh > 0 else { return nil }
+        let scale = Float(maskSize) / Float(max(mw, mh))
+        let sw = max(1, Int(Float(mw) * scale)), sh = max(1, Int(Float(mh) * scale))
+        let px = (maskSize - sw) / 2, py = (maskSize - sh) / 2
+        let rendered = UIGraphicsImageRenderer(size: CGSize(width: maskSize, height: maskSize)).image { _ in
+            UIImage(cgImage: cgm).draw(in: CGRect(x: px, y: py, width: sw, height: sh))
+        }.cgImage
+        guard let rendered,
+              let ctx = CGContext(data: nil, width: maskSize, height: maskSize, bitsPerComponent: 8,
+                                  bytesPerRow: maskSize * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.draw(rendered, in: CGRect(x: 0, y: 0, width: maskSize, height: maskSize))
+        guard let data = ctx.data else { return nil }
+        let p = data.bindMemory(to: UInt8.self, capacity: maskSize * maskSize * 4)
+        var out = [Float](repeating: 0, count: maskSize * maskSize)
+        var on = 0
+        for i in 0..<(maskSize * maskSize) where p[i * 4 + 3] > 127 { out[i] = 1; on += 1 }
+        return on > 0 ? out : nil
     }
 
     // MARK: - Sync Detection (camera / video -- boxes + combined mask overlay)

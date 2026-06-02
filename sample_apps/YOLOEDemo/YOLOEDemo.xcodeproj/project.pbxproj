@@ -16,6 +16,13 @@
 		E20000010000000000000009 /* reprta.mlpackage in Sources */ = {isa = PBXBuildFile; fileRef = E20000020000000000000009 /* reprta.mlpackage */; };
 		E2000001000000000000000A /* visual_prompt_encoder.mlpackage in Sources */ = {isa = PBXBuildFile; fileRef = E2000002000000000000000A /* visual_prompt_encoder.mlpackage */; };
 		E20000010000000000000007 /* clip_vocab.json in Resources */ = {isa = PBXBuildFile; fileRef = E20000020000000000000007 /* clip_vocab.json */; };
+		E2000001000000000000000B /* SamSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2000002000000000000000B /* SamSession.swift */; };
+		E2000001000000000000000C /* Preprocessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2000002000000000000000C /* Preprocessor.swift */; };
+		E2000001000000000000000D /* PromptEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2000002000000000000000D /* PromptEncoder.swift */; };
+		E2000001000000000000000E /* Postprocessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2000002000000000000000E /* Postprocessor.swift */; };
+		E2000001000000000000000F /* mobile_sam_encoder.mlpackage in Sources */ = {isa = PBXBuildFile; fileRef = E2000002000000000000000F /* mobile_sam_encoder.mlpackage */; };
+		E20000010000000000000011 /* mobile_sam_decoder.mlpackage in Sources */ = {isa = PBXBuildFile; fileRef = E20000020000000000000011 /* mobile_sam_decoder.mlpackage */; };
+		E20000010000000000000013 /* mobile_sam_prompt_encoder_weights.json in Resources */ = {isa = PBXBuildFile; fileRef = E20000020000000000000013 /* mobile_sam_prompt_encoder_weights.json */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -29,6 +36,13 @@
 		E2000002000000000000000A /* visual_prompt_encoder.mlpackage */ = {isa = PBXFileReference; lastKnownFileType = folder.mlpackage; path = visual_prompt_encoder.mlpackage; sourceTree = "<group>"; };
 		E20000020000000000000007 /* clip_vocab.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = clip_vocab.json; sourceTree = "<group>"; };
 		E20000020000000000000008 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		E2000002000000000000000B /* SamSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SAMKit/SamSession.swift; sourceTree = "<group>"; };
+		E2000002000000000000000C /* Preprocessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SAMKit/Preprocessor.swift; sourceTree = "<group>"; };
+		E2000002000000000000000D /* PromptEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SAMKit/PromptEncoder.swift; sourceTree = "<group>"; };
+		E2000002000000000000000E /* Postprocessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SAMKit/Postprocessor.swift; sourceTree = "<group>"; };
+		E2000002000000000000000F /* mobile_sam_encoder.mlpackage */ = {isa = PBXFileReference; lastKnownFileType = folder.mlpackage; path = mobile_sam_encoder.mlpackage; sourceTree = "<group>"; };
+		E20000020000000000000011 /* mobile_sam_decoder.mlpackage */ = {isa = PBXFileReference; lastKnownFileType = folder.mlpackage; path = mobile_sam_decoder.mlpackage; sourceTree = "<group>"; };
+		E20000020000000000000013 /* mobile_sam_prompt_encoder_weights.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = mobile_sam_prompt_encoder_weights.json; sourceTree = "<group>"; };
 		E20000020000000000000010 /* YOLOEDemo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = YOLOEDemo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -38,7 +52,7 @@
 
 /* Begin PBXGroup section */
 		E20000040000000000000001 = { isa = PBXGroup; children = (E20000040000000000000002, E20000040000000000000003); sourceTree = "<group>"; };
-		E20000040000000000000002 /* YOLOEDemo */ = { isa = PBXGroup; children = (E20000020000000000000001, E20000020000000000000002, E20000020000000000000003, E20000020000000000000005, E20000020000000000000006, E20000020000000000000009, E2000002000000000000000A, E20000020000000000000007, E20000020000000000000004, E20000020000000000000008); path = YOLOEDemo; sourceTree = "<group>"; };
+		E20000040000000000000002 /* YOLOEDemo */ = { isa = PBXGroup; children = (E20000020000000000000001, E20000020000000000000002, E20000020000000000000003, E2000002000000000000000B, E2000002000000000000000C, E2000002000000000000000D, E2000002000000000000000E, E20000020000000000000005, E20000020000000000000006, E20000020000000000000009, E2000002000000000000000A, E2000002000000000000000F, E20000020000000000000011, E20000020000000000000007, E20000020000000000000013, E20000020000000000000004, E20000020000000000000008); path = YOLOEDemo; sourceTree = "<group>"; };
 		E20000040000000000000003 /* Products */ = { isa = PBXGroup; children = (E20000020000000000000010); name = Products; sourceTree = "<group>"; };
 /* End PBXGroup section */
 
@@ -51,11 +65,11 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		E20000060000000000000002 /* Resources */ = { isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (E20000010000000000000004, E20000010000000000000007); runOnlyForDeploymentPostprocessing = 0; };
+		E20000060000000000000002 /* Resources */ = { isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (E20000010000000000000004, E20000010000000000000007, E20000010000000000000013); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		E20000060000000000000001 /* Sources */ = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (E20000010000000000000001, E20000010000000000000002, E20000010000000000000003, E20000010000000000000005, E20000010000000000000006, E20000010000000000000009, E2000001000000000000000A); runOnlyForDeploymentPostprocessing = 0; };
+		E20000060000000000000001 /* Sources */ = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (E20000010000000000000001, E20000010000000000000002, E20000010000000000000003, E2000001000000000000000B, E2000001000000000000000C, E2000001000000000000000D, E2000001000000000000000E, E20000010000000000000005, E20000010000000000000006, E20000010000000000000009, E2000001000000000000000A, E2000001000000000000000F, E20000010000000000000011); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
