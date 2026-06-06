@@ -342,7 +342,9 @@ YOLO-World: Real-Time Open-Vocabulary Object Detection. Type any text query and 
 
 ### YOLOE
 
-YOLOE: Real-Time Open-Vocabulary **Detection + Instance Segmentation**. Type any text query and detect *and* segment it — no fixed class list. Unlike YOLO-World, the detector outputs per-anchor **region embeddings** and the region–text similarity runs in Swift against cached MobileCLIP text embeddings, so switching the query never re-runs the image branch. Available in **S** (fast) and **L** (accurate) — each size ships its own detector + RepRTA; the MobileCLIP encoder and vocab are shared. Real-time instance masks render in camera/video via the [yolo-ios-app](https://github.com/ultralytics/yolo-ios-app) combined-mask fast path. Also supports **visual prompts** (SAVPE) — box an object in a reference photo and detect it by example, no text needed; the visual embedding is a drop-in for the text query. See [YOLOEDemo](sample_apps/YOLOEDemo) for the exact 513-dim BNContrastiveHead decomposition.
+YOLOE: Real-Time Open-Vocabulary **Detection + Instance Segmentation**. Detect *and* segment anything from a text query or a visual prompt (box an example object) — no fixed class list. Available in **S** (fast) and **L** (accurate). See [YOLOEDemo](sample_apps/YOLOEDemo) for the region-embedding + MobileCLIP pipeline.
+
+<img width="250" src="https://github.com/user-attachments/assets/739f9c8c-474f-4b91-be5b-40f4987ca319"> <img width="250" src="https://github.com/user-attachments/assets/e5767541-6021-4933-b1c1-91d762e9e878">
 
 | Download Link | Size | Description | Original Project | License | Year | Sample Project |
 | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- |
@@ -359,7 +361,7 @@ YOLOE: Real-Time Open-Vocabulary **Detection + Instance Segmentation**. Type any
 
 ### ByteTrack
 
-ByteTrack: Multi-Object Tracking by Associating Every Detection Box. Pure-Swift on-device tracker that adds persistent IDs to any of the object detectors above. Pairs a per-track 8D constant-velocity Kalman filter with a two-stage IoU association — high-confidence detections are matched first, then low-confidence detections are used to rescue tracks about to be lost through motion blur and brief occlusions. No appearance / ReID network, so it runs for free on top of an existing detector.
+ByteTrack: Multi-Object Tracking by Associating Every Detection Box. Pure-Swift on-device tracker that adds persistent IDs on top of any detector above — an 8D Kalman filter plus two-stage IoU association, no appearance / ReID network.
 
 | Implementation | Source | Paper | License | Year | Note | Sample Project |
 | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- |
@@ -520,7 +522,7 @@ SAM 2: Segment Anything in Images and Videos. SAM 2 extends promptable segmentat
 
 ### FastSAM
 
-Fast Segment Anything — a **YOLOv8-seg** instance segmenter (not a SAM encoder/decoder): one forward pass segments everything and point/box prompts just *select* among them, so it's the fastest SAM-family option for real-time use. The [FastSAMDemo](sample_apps/FastSAMDemo) covers real-time camera, photo tap-to-pick, and offline video. FastSAM-s (light) / FastSAM-x (quality).
+Fast Segment Anything — a **YOLOv8-seg** instance segmenter (not a SAM encoder/decoder): one forward pass segments everything and point/box prompts just *select* among them, the fastest SAM-family option for real-time use. FastSAM-s (light) / FastSAM-x (quality).
 
 | Download Link | Size | Output | Original Project | License | Year | Sample Project | Conversion Script |
 | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- |
@@ -533,11 +535,7 @@ Note: AGPL-3.0 (Ultralytics YOLOv8), unlike the Apache-2.0 SAM family.
 
 ### MatAnyone
 
-[pq-yang/MatAnyone](https://github.com/pq-yang/MatAnyone) (CVPR 2025) — temporally consistent video matting with object-level memory propagation. Given a first-frame mask the network tracks and refines an alpha matte across the whole clip, holding sharp edges (hair, semitransparent regions) much better than per-frame matting baselines. Built on the Cutie video object segmentation backbone with a dedicated mask decoder for matting.
-
-The CoreML port splits the network into 5 stateless modules so the per-frame memory state machine can live in Swift while CoreML handles the heavy compute. End-to-end alpha matte parity vs the official PyTorch reference: MAE < 2e-4, correlation 0.9999+ across 18 frames including 3 memory cycles.
-
-The sample app uses Vision's `VNGeneratePersonSegmentationRequest` to bootstrap the first-frame mask automatically — pick a video, tap "Remove BG", and it composites the foreground over the chosen background colour.
+[pq-yang/MatAnyone](https://github.com/pq-yang/MatAnyone) (CVPR 2025) — temporally consistent video matting with object-level memory propagation. From a first-frame mask it tracks and refines an alpha matte across the whole clip, holding sharp edges (hair, semitransparent regions) far better than per-frame baselines.
 
 | Download Link | Size | Input | Output | Original Project | License | Year | Sample Project | Conversion Script |
 | ------------- | ---- | ----- | ------ | ---------------- | ------- | ---- | -------------- | ----------------- |
@@ -923,7 +921,7 @@ White-box facial image cartoonizaiton
 
 ### Depth Anything 3
 
-[ByteDance-Seed/Depth-Anything-3](https://github.com/ByteDance-Seed/Depth-Anything-3) (ICLR 2026 Oral) — relative monocular depth from a single image. DA3 Main Series uses a plain DINOv2 ViT backbone plus a DualDPT head with a unified depth-ray representation; this Core ML port exposes only the monocular depth + confidence subgraph (camera / multi-view / sky / 3DGS branches are stripped). First public Core ML conversion of DA3.
+[ByteDance-Seed/Depth-Anything-3](https://github.com/ByteDance-Seed/Depth-Anything-3) (ICLR 2026 Oral) — relative monocular depth from a single image. This Core ML port exposes only the monocular depth + confidence subgraph (camera / multi-view / sky / 3DGS branches stripped). First public Core ML conversion of DA3.
 
 <video src="https://github.com/user-attachments/assets/dd914469-909e-4293-8db1-2f21d88b4ad6" width="400"></video>
 <video src="https://github.com/user-attachments/assets/a16ded0c-9a54-4c10-a0f1-a121b38c8c05" width="400"></video>
@@ -935,7 +933,7 @@ White-box facial image cartoonizaiton
 
 ### MoGe-2
 
-[microsoft/MoGe](https://github.com/microsoft/MoGe) (CVPR 2025 Oral) — open-domain monocular 3D geometry from a single image. Predicts a metric depth map, surface normals, and a confidence mask in one forward pass on a DINOv2 ViT-B backbone with three task heads. The successor to MiDaS-style relative depth: depth comes out in real meters.
+[microsoft/MoGe](https://github.com/microsoft/MoGe) (CVPR 2025 Oral) — open-domain monocular 3D geometry from a single image. Predicts a metric depth map, surface normals, and a confidence mask in one forward pass — unlike MiDaS-style relative depth, the depth comes out in real meters.
 
 <img width="256" src="https://github.com/user-attachments/assets/0e22611d-c27f-4117-b6ef-99de98c3926e"> <img width="256" src="https://github.com/user-attachments/assets/4541c0a2-e9ad-41ca-8ad2-118414d69843"> <img width="256" src="https://github.com/user-attachments/assets/218ff176-9371-4855-86e2-4d469306fb7b">
 
@@ -958,7 +956,7 @@ Towards Robust Monocular Depth Estimation: Mixing Datasets for Zero-shot Cross-d
 
 ### Nitro-E
 
-[amd/Nitro-E](https://huggingface.co/amd/Nitro-E) — AMD's 304M-parameter E-MMDiT text-to-image model released October 2025. 4-step distilled variant generates 512×512 images from a prompt in ~2–3 seconds on iPhone 15+. Uses Llama 3.2 1B as the text encoder, a DC-AE f32c32 VAE decoder, and an ASA-based (Alternating Subregion Attention) diffusion transformer. Full pipeline fits in ~1.04 GB after INT4 / INT8 palettization (TextEncoder 590 MB + E-MMDiT 295 MB + VAE 159 MB).
+[amd/Nitro-E](https://huggingface.co/amd/Nitro-E) — AMD's 304M-parameter E-MMDiT text-to-image model. The 4-step distilled variant generates 512×512 images in ~2–3 seconds on iPhone 15+, and the full pipeline fits in ~1.04 GB after INT4 / INT8 palettization.
 
 <img width="400" src="sample_apps/NitroEDemo/demo.png">
 
@@ -976,7 +974,7 @@ See [`sample_apps/NitroEDemo/README.md`](sample_apps/NitroEDemo/README.md) for t
 
 ### Hyper-SD
 
-[ByteDance/Hyper-SD](https://huggingface.co/ByteDance/Hyper-SD) — single-step text-to-image distilled from SD1.5 via Trajectory Segmented Consistency Distillation. ByteDance reports user preference 2x over SD-Turbo at 1 step. Combined with Apple's ml-stable-diffusion (Split-Einsum attention, chunked UNet, 6-bit palettization), runs at acceptable speed and quality on iPhone 15+.
+[ByteDance/Hyper-SD](https://huggingface.co/ByteDance/Hyper-SD) — single-step text-to-image distilled from SD1.5 via Trajectory Segmented Consistency Distillation. ByteDance reports 2× user preference over SD-Turbo at 1 step; runs at acceptable speed and quality on iPhone 15+ via Apple's ml-stable-diffusion.
 
 <video src="https://github.com/user-attachments/assets/dd456c13-d778-4a84-8bb2-9dfd78de3070" width="400"></video>
 
@@ -1141,7 +1139,7 @@ Microsoft Florence-2 — a unified vision-language model supporting image captio
 
 # Language Model
 
-**[john-rocky/CoreML-LLM](https://github.com/john-rocky/CoreML-LLM)** — Companion repository for running LLMs on the **Apple Neural Engine**. Unlike MLX Swift (GPU-only), CoreML-LLM targets ANE for ~10x lower power draw, making always-on on-device LLMs practical on iPhone. Current release **v1.4.0** — Gemma 4 E2B 3-chunk decode (31.6 → 34.2 tok/s, +8.2%), chunk pipelining default ON, still-image vision encoder on ANE. All models below load via the same `CoreMLLLM.load(...)` Swift API and are available in-app through the [Models Zoo](https://apps.apple.com/jp/app/models-zoo/id6762083207) hub.
+**[john-rocky/CoreML-LLM](https://github.com/john-rocky/CoreML-LLM)** — Companion repository for running LLMs on the **Apple Neural Engine**. Unlike MLX Swift (GPU-only), CoreML-LLM targets ANE for ~10x lower power draw, making always-on on-device LLMs practical on iPhone. All models below load via the same `CoreMLLLM.load(...)` Swift API and are available in-app through the [Models Zoo](https://apps.apple.com/jp/app/models-zoo/id6762083207) hub.
 
 | Model | Size | Modalities | iPhone 17 Pro decode | HuggingFace |
 |---|---:|---|---:|---|
@@ -1153,7 +1151,7 @@ Microsoft Florence-2 — a unified vision-language model supporting image captio
 
 ### Gemma 4 E2B (CoreML-LLM)
 
-Google Gemma 4 E2B (2.3B effective parameters with Per-Layer Embeddings) running fully on ANE. **Multimodal**: text, image (native 384x384 encoder, 196 tokens/image), audio (12-layer Conformer encoder), and video (64 tokens/frame). 2048 context length, Sliding Window Attention (28/35 layers are O(W)), PLE computed inside the graph. The default 4-chunk decode ships at 31.6 tok/s on iPhone 17 Pro; `LLM_3CHUNK=1` bumps it to 34.2 tok/s by collapsing chunk 2+3.
+Google Gemma 4 E2B (2.3B effective parameters) running fully on ANE. **Multimodal** — text, image, audio, and video input, 2048-token context. Decodes at 31–34 tok/s on iPhone 17 Pro.
 
 | Download Link | Size | Input | Output | Original Project | License | Year | Sample Project | Swift Package |
 | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- |
@@ -1169,7 +1167,7 @@ Larger text-only Gemma 4 variant — 42-layer decoder, ~4B effective parameters,
 
 ### Qwen3.5 2B
 
-Alibaba Qwen3.5 2B — hybrid Gated-DeltaNet SSM + attention. Shipped as 4 INT8 body chunks (6 layers each) + tail + mmap fp16 embed sidecar so a 2B-param model fits in ~200 MB phys_footprint. The 4-chunk split is required to stay ANE-resident — a 2-chunk variant at 2 GB fp16/chunk exceeds the single-mlprogram budget and falls to GPU.
+Alibaba Qwen3.5 2B — hybrid Gated-DeltaNet SSM + attention, INT8. Shipped as 4 chunks + an mmap fp16 embed sidecar so a 2B-param model fits in ~200 MB physical footprint and stays ANE-resident.
 
 | Download Link | Size | Input | Output | Original Project | License | Year | Sample Project | Swift Package |
 | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- |
@@ -1185,7 +1183,7 @@ Compact hybrid SSM+attention model, INT8 palettized — same semantic precision 
 
 ### Qwen3-VL 2B
 
-Qwen3-VL multimodal — text + image input with DeepStack injection at L0/1/2 and interleaved mRoPE for the 196 image tokens. 28-layer GQA text backbone shipped as 6 INT8 body chunks + chunk_head + raw fp16 embed sidecar that Swift mmaps. Vision tower re-uses Qwen3-VL's native ViT.
+Qwen3-VL multimodal — text + image input, re-using Qwen3-VL's native ViT vision tower. 28-layer GQA text backbone shipped as 6 INT8 chunks + an mmap fp16 embed sidecar.
 
 | Download Link | Size | Input | Output | Original Project | License | Year | Sample Project | Swift Package |
 | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- |
@@ -1207,7 +1205,7 @@ Google SigLIP — sigmoid-based contrastive image-text model for zero-shot class
 
 ### Kokoro-82M
 
-[hexgrad/Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) — open-weight 82M-parameter TTS by hexgrad. Style-conditioned StyleTTS2 architecture (BERT + duration predictor + iSTFTNet vocoder) producing 24kHz speech in 9 languages from per-voice style embeddings. The first CoreML port with **on-device bilingual (English + Japanese) free-text input** — no MLX, no MeCab, no IPADic, no Python G2P at runtime.
+[hexgrad/Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) — open-weight 82M-parameter StyleTTS2 TTS producing 24kHz speech in 9 languages. The first CoreML port with **on-device bilingual (English + Japanese) free-text input** — no MLX, no MeCab, no Python G2P at runtime.
 
 <video src="https://github.com/user-attachments/assets/56eb2ffc-f915-4f8b-b6d3-1021f3d490ca" width="400"></video>
 
@@ -1240,7 +1238,7 @@ EfficientAD (PDN-Small) — lightweight unsupervised anomaly detection for indus
 
 <video src="https://github.com/user-attachments/assets/d4e96b51-680f-471c-93d1-7546d5890cd7" width="400"></video>
 
-The first open-source iOS implementation. Loads any audio file, runs the CoreML model in 2-second sliding windows, then runs the full Python `note_creation.py` pipeline natively in Swift (onset inference, greedy backwards-in-time tracking, melodia trick, pitch bend extraction). Detected notes are visualized as a piano roll, exported as a Standard MIDI File, and played back through a built-in additive sine synth so you can A/B compare with the original audio.
+The first open-source iOS implementation: detected notes are shown as a piano roll, exported as a Standard MIDI File, and played back through a built-in synth for A/B comparison with the original audio.
 
 | Download Link | Size | Input | Output | Original Project | License | Year | Sample Project |
 | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- |
